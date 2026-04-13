@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZipCastellano | Calificador de Exámenes ICFES</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+    <nav>
+        <div class="logo">ZipCastellano</div>
+        <div class="nav-links">
+            <button class="btn" onclick="app.navigate('dashboard')">Inicio</button>
+            <button class="btn" onclick="app.navigate('students')">Estudiantes</button>
+            <button class="btn" onclick="app.navigate('exams')">Exámenes</button>
+            <button class="btn" onclick="app.navigate('stats')">Estadísticas</button>
+            <button class="btn" onclick="app.navigate('settings')"><i data-lucide="settings"></i></button>
+            <button class="btn btn-primary" onclick="app.navigate('scanner')">
+                <i data-lucide="camera"></i> Escanear
+            </button>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Dashboard View -->
+        <section id="view-dashboard" class="view active animated">
+            <h1>Panel de Control</h1>
+            <p class="text-muted">Bienvenido al sistema de seguimiento de castellano.</p>
+            
+            <div class="grid" style="margin-top: 30px;">
+                <div class="glass-card p-4" style="padding: 24px;">
+                    <h3>Último Examen</h3>
+                    <p id="last-exam-name">No hay datos</p>
+                    <div class="stats-mini" style="margin-top: 15px;">
+                        <span class="competency-badge c1">Semántica</span>
+                        <span class="competency-badge c2">Sintáctica</span>
+                    </div>
+                </div>
+                <div class="glass-card p-4" style="padding: 24px;">
+                    <h3>Estudiantes</h3>
+                    <p id="student-count">0 registrados</p>
+                    <button class="btn btn-primary" style="margin-top: 15px;" onclick="app.navigate('students')">Gestionar</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Students View -->
+        <section id="view-students" class="view animated">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h1>Estudiantes</h1>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select id="filter-grade" class="input-modern" style="width: auto; padding: 8px 15px;" onchange="students.render()">
+                        <option value="">Todos los Grados</option>
+                    </select>
+                    <button class="btn" style="background: var(--accent); color: white;" onclick="document.getElementById('excel-upload').click()">Importar Excel</button>
+                    <button class="btn" style="background: #3b82f6; color: white;" onclick="app.importFromSheet()">Sincronizar desde Nube</button>
+                    <button class="btn btn-primary" onclick="ui.showModal('student-modal')">Agregar Estudiante</button>
+                    <input type="file" id="excel-upload" style="display: none;" accept=".xls,.xlsx" onchange="students.importExcel(event)">
+                </div>
+            </div>
+            <div class="glass-card" style="margin-top: 24px; padding: 20px;">
+                <table id="student-table" style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="text-align: left; border-bottom: 1px solid var(--border);">
+                            <th style="padding: 12px;">Nombre</th>
+                            <th style="padding: 12px;">Grado</th>
+                            <th style="padding: 12px;">ID</th>
+                            <th style="padding: 12px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="student-list">
+                        <!-- Student items will be injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Exams View -->
+        <section id="view-exams" class="view animated">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h1>Exámenes</h1>
+                <button class="btn btn-primary" onclick="app.navigate('exam-editor')">Nuevo Examen</button>
+            </div>
+            <div id="exam-list" class="grid" style="margin-top: 24px;">
+                <!-- Exam cards -->
+            </div>
+        </section>
+
+        <!-- Scanner View -->
+        <section id="view-scanner" class="view animated">
+            <h1>Escáner de Hojas</h1>
+
+            <!-- Exam selector -->
+            <div class="glass-card" style="margin-top:20px; padding:20px; display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
+                <div style="flex:1; min-width:200px;">
+                    <label>Examen activo</label>
+                    <select id="scan-exam-select" class="input-modern" style="margin-top:5px;">
+                        <option value="">Selecciona un examen...</option>
+                    </select>
+                </div>
+                <div id="scan-exam-info" style="color:var(--accent); font-size:0.9rem;"></div>
+            </div>
+
+            <!-- Camera -->
+            <div class="glass-card" style="margin-top:16px; position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; padding:20px; gap:15px;">
+                <video id="video" style="width:100%; max-width:600px; border-radius:12px; background:black;" playsinline></video>
+                <canvas id="overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
+
+                <div id="scanner-controls" style="display:flex; gap:10px;">
+                    <button class="btn btn-primary" id="start-scan">📷 Iniciar Cámara</button>
+                    <button class="btn" id="stop-scan">⏹ Detener</button>
+                </div>
+                <div id="scan-status" style="color:var(--accent); font-size:0.9rem; text-align:center;">Selecciona un examen y activa la cámara.</div>
+            </div>
+
+            <!-- Result Panel (hidden until QR detected) -->
+            <div id="result-panel" class="glass-card" style="margin-top:16px; padding:24px; display:none;">
+                <h3 style="margin-bottom:16px;">✅ Hoja Detectada</h3>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                    <div>
+                        <p><strong>Estudiante:</strong> <span id="res-name">—</span></p>
+                        <p><strong>Grado:</strong> <span id="res-grade">—</span></p>
+                        <p><strong>ID:</strong> <span id="res-id">—</span></p>
+                    </div>
+                    <div style="text-align:center;">
+                        <div id="res-score" style="font-size:3rem; font-weight:800; color:var(--accent);">—</div>
+                        <div style="color:var(--text-muted);">Puntaje</div>
+                    </div>
+                </div>
+                <div id="res-competencies" style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
+                <div style="margin-top:20px; display:flex; gap:10px;">
+                    <button class="btn btn-primary" onclick="scanner.saveResult()">💾 Guardar y Continuar</button>
+                    <button class="btn" onclick="scanner.discardResult()">❌ Descartar</button>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Exam Editor View -->
+        <section id="view-exam-editor" class="view animated">
+            <h1>Editor de Examen</h1>
+            <div class="glass-card" style="margin-top: 24px; padding: 24px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <label>Nombre del Examen</label>
+                        <input type="text" id="exam-name" class="input-modern" placeholder="Ej: Control Lectura 1">
+                    </div>
+                    <div>
+                        <label>Grado / Grupo</label>
+                        <select id="exam-grade" class="input-modern">
+                            <option value="">Seleccionar Grado...</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <label>Número de Preguntas (Máx 150)</label>
+                        <input type="number" id="exam-q-count" class="input-modern" value="30" min="1" max="150" onchange="exams.renderEditor()">
+                    </div>
+                </div>
+                
+                <h3 style="margin-top: 30px;">Clave de Respuestas (Mapping de Competencias)</h3>
+                <div id="question-keys" style="margin-top: 15px; max-height: 400px; overflow-y: auto;">
+                    <!-- Question rows -->
+                </div>
+                
+                <button class="btn btn-primary" style="margin-top: 20px;" onclick="exams.save()">Guardar Examen</button>
+            </div>
+        </section>
+        <!-- Statistics View -->
+        <section id="view-stats" class="view animated">
+            <h1>Estadísticas y Seguimiento</h1>
+            <div class="grid" style="margin-top: 24px;">
+                <div class="glass-card p-4" style="padding: 24px;">
+                    <h3>Desempeño Clasificado (ICFES)</h3>
+                    <canvas id="competency-chart"></canvas>
+                </div>
+                <div class="glass-card p-4" style="padding: 24px;">
+                    <h3>Comparativa de Grupos</h3>
+                    <canvas id="group-chart"></canvas>
+                </div>
+            </div>
+            <div class="glass-card p-4" style="margin-top: 24px; padding: 24px;">
+                <h3>Evolución Histórica</h3>
+                <canvas id="history-chart" style="max-height: 300px;"></canvas>
+            </div>
+        </section>
+
+        <!-- Settings View -->
+        <section id="view-settings" class="view animated">
+            <h1>Configuración</h1>
+            <div class="glass-card" style="margin-top: 24px; padding: 30px; max-width: 600px;">
+                <h3>Sincronización con Google Sheets</h3>
+                <p class="text-muted" style="margin-bottom: 20px;">Pega aquí la URL de tu aplicación web de Google Apps Script.</p>
+                
+                <label>URL de la API (App Script)</label>
+                <input type="text" id="api-url" class="input-modern" placeholder="https://script.google.com/macros/s/.../exec">
+                
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button class="btn btn-primary" onclick="settings.save()">Guardar Configuración</button>
+                    <button class="btn" style="background: var(--accent); color: white;" onclick="settings.testConnection()">Probar Conexión</button>
+                </div>
+                
+                <div id="settings-status" style="margin-top: 15px;"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modals -->
+    <div id="student-modal" class="modal-overlay" style="display: none;">
+        <div class="glass-card modal-content" style="padding: 30px; max-width: 400px; margin: 100px auto;">
+            <h2>Nuevo Estudiante</h2>
+            <div style="margin-top: 20px;">
+                <input type="text" id="new-std-name" class="input-modern" placeholder="Nombre completo">
+                <input type="text" id="new-std-grade" class="input-modern" placeholder="Grado" style="margin-top: 10px;">
+                <input type="text" id="new-std-id" class="input-modern" placeholder="ID/Código" style="margin-top: 10px;">
+            </div>
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <button class="btn btn-primary" onclick="students.add()">Guardar</button>
+                <button class="btn" onclick="ui.hideModal('student-modal')">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .input-modern {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            padding: 12px;
+            border-radius: 8px;
+            color: white;
+            outline: none;
+        }
+        .input-modern:focus { border-color: var(--primary); }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+        }
+    </style>
+
+    <script src="js/app.js"></script>
+    <script src="js/scanner.js"></script>
+    <script src="js/printer.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
