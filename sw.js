@@ -1,6 +1,6 @@
 /**
  * ZIPCASTELLANO SERVICE WORKER
- * Versión: 1.0
+ * Versión: 3.0 (Update Force)
  * Permite uso offline y mejora la velocidad de carga.
  */
 
