@@ -28,69 +28,92 @@ const app = {
         if (!settings.apiUrl) return alert("Configura la URL de API primero en ⚙️");
         try {
             app.toast('⏳ Sincronizando datos...');
-            const res = await fetch(settings.apiUrl);
-            const data = await res.json();
+            const data = await this.gasRequest();
+            if (!data) return;
             
-            if (data.students) {
+            if (data.students && data.students.length > 0) {
                 students.list = data.students;
                 students.save();
                 students.render();
             }
-            if (data.exams) {
+            if (data.exams && data.exams.length > 0) {
                 exams.list = data.exams;
                 localStorage.setItem('zc_exams', JSON.stringify(data.exams));
                 exams.renderList();
             }
-            if (data.results) {
+            if (data.results && data.results.length > 0) {
                 localStorage.setItem('zc_results', JSON.stringify(data.results));
             }
             
             app.updateDashboard();
-            alert(`¡Sincronización Total Exitosa!\nDatos cargados: ${data.students?.length || 0} estudiantes, ${data.exams?.length || 0} exámenes y ${data.results?.length || 0} resultados.`);
+            app.toast(`✅ Sincronización Exitosa`);
         } catch (err) {
             console.error(err);
-            alert("Error al importar desde Sheets. Revisa la URL y que el script esté publicado.");
+            alert("Error al importar: Revisa la consola y asegúrate de que el script esté publicado correctamente.");
         }
     },
 
-    // ─── Sync via GET (no CORS issues) ───────────────────────────
-    gasGet(payload) {
-        return new Promise((resolve) => {
-            const url = settings.apiUrl + '?data=' + encodeURIComponent(JSON.stringify(payload));
-            const img = new Image();
-            img.onload = img.onerror = () => resolve(true);
-            img.src = url;
-            setTimeout(() => resolve(true), 8000);
-        });
+    // ─── Nueva Comunicación Robusta (GET/POST) ────────────────────────
+    async gasRequest(payload = null) {
+        if (!settings.apiUrl) return null;
+        
+        const options = {
+            method: payload ? 'POST' : 'GET',
+            mode: 'cors', // Intentamos CORS primero
+            headers: {
+                'Content-Type': 'text/plain' // Usamos text/plain para evitar preflight OPTIONS si es posible
+            }
+        };
+        
+        if (payload) {
+            options.body = JSON.stringify(payload);
+        }
+
+        try {
+            const res = await fetch(settings.apiUrl, options);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            return await res.json();
+        } catch (err) {
+            console.warn('CORS/Fetch error, intentando modo no-cors para envío...', err);
+            
+            // Si falló y es un POST, intentamos "no-cors" como último recurso (fuego y olvido)
+            if (payload) {
+                fetch(settings.apiUrl, { 
+                    method: 'POST', 
+                    body: JSON.stringify(payload), 
+                    mode: 'no-cors' 
+                });
+                return { success: true, note: 'sent_no_cors' };
+            }
+            throw err;
+        }
     },
 
     async pushResultToSheet(result) {
-        if (!settings.apiUrl) return;
         try {
-            // Enviamos el resultado individual
-            await this.gasGet({ action: 'saveResult', ...result });
+            await this.gasRequest({ action: 'saveResult', ...result });
         } catch (err) {
             console.error('pushResult failed', err);
         }
     },
 
     async pushExamsToSheet() {
-        if (!settings.apiUrl) return;
+        app.toast('⏳ Sincronizando exámenes...');
         try {
-            await this.gasGet({ action: 'saveExams', exams: exams.list });
+            await this.gasRequest({ action: 'saveExams', exams: exams.list });
             app.toast('✅ Exámenes sincronizados');
         } catch (err) {
-            app.toast('⚠️ Error al sincronizar exámenes', true);
+            app.toast('⚠️ Error de conexión', true);
         }
     },
 
     async pushStudentsToSheet(studentsList) {
-        if (!settings.apiUrl) return;
+        app.toast('⏳ Sincronizando estudiantes...');
         try {
-            await this.gasGet({ action: 'saveStudents', students: studentsList });
+            await this.gasRequest({ action: 'saveStudents', students: studentsList });
             app.toast('✅ Estudiantes sincronizados');
         } catch (err) {
-            app.toast('⚠️ Error al sincronizar estudiantes', true);
+            app.toast('⚠️ Error de conexión', true);
         }
     },
 
@@ -289,8 +312,8 @@ const exams = {
                 <div>
                     <h4 style="font-size:1.05rem;">${e.name}</h4>
                     <p style="color:var(--text-muted); font-size:0.85rem; margin-top:4px;">
-                        📚 ${e.grade} &nbsp;·&nbsp; ❓ ${e.questions.length} preguntas
-                        &nbsp;·&nbsp; 📅 ${new Date(e.date).toLocaleDateString()}
+                        📚 ${e.grade} &nbsp;·&nbsp; ❓ ${(e.questions || []).length} preguntas
+                        &nbsp;·&nbsp; 📅 ${e.date ? new Date(e.date).toLocaleDateString() : 'S/F'}
                     </p>
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -310,13 +333,12 @@ const exams = {
     async syncOne(examId) {
         const exam = this.list.find(e => e.id === examId);
         if (!exam) return;
-        if (!settings.apiUrl) return alert('Configura la URL de API primero en ⚙️ Config.');
-        app.toast('⏳ Enviando a Sheets...');
+        app.toast('⏳ Enviando a Nube...');
         try {
-            await app.gasGet({ action: 'saveExams', exams: this.list });
-            app.toast(`✅ "${exam.name}" guardado en Sheets`);
+            await app.gasRequest({ action: 'saveExams', exams: this.list });
+            app.toast(`✅ "${exam.name}" guardado`);
         } catch (err) {
-            app.toast('⚠️ Sin conexión. Verifica internet.', true);
+            app.toast('⚠️ Error de sincronización', true);
             console.error('syncOne error:', err);
         }
     },

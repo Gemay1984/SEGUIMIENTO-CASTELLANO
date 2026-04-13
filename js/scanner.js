@@ -289,7 +289,7 @@ const scanner = {
         history.push(resultObj);
         localStorage.setItem('zc_results', JSON.stringify(history));
 
-        // Sincronizar con Sheets usando el método robusto (gasGet)
+        // Sincronizar con Sheets usando el nuevo método robusto (POST)
         if (settings.apiUrl) {
             app.toast('⏳ Sincronizando en la nube...');
             await app.pushResultToSheet(resultObj);
