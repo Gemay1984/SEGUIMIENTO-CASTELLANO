@@ -25,15 +25,17 @@ const app = {
     },
 
     async pushStudentsToSheet(studentsList) {
-        if (!settings.apiUrl) return console.log("Cloud sync disabled (no API URL)");
+        if (!settings.apiUrl) return;
         try {
-            const res = await fetch(settings.apiUrl, {
+            await fetch(settings.apiUrl, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'saveStudents', students: studentsList })
             });
-            console.log("Cloud Sync Successful", await res.json());
+            app.toast('✅ Estudiantes guardados en Sheets');
         } catch (err) {
-            console.error("Cloud Sync Failed", err);
+            app.toast('⚠️ No se pudo sincronizar estudiantes', true);
+            console.error('pushStudents failed', err);
         }
     },
 
@@ -65,9 +67,22 @@ const app = {
         try {
             await fetch(settings.apiUrl, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'saveExams', exams: exams.list })
             });
-        } catch (err) { console.error("Exam Sync Failed", err); }
+            app.toast('✅ Examen guardado en Sheets');
+        } catch (err) {
+            app.toast('⚠️ No se pudo sincronizar el examen', true);
+            console.error('pushExams failed', err);
+        }
+    },
+
+    toast(msg, isError = false) {
+        const t = document.createElement('div');
+        t.textContent = msg;
+        t.style.cssText = `position:fixed;bottom:24px;right:24px;background:${isError ? '#ef4444' : '#10b981'};color:white;padding:12px 20px;border-radius:10px;font-size:0.9rem;font-family:Outfit,sans-serif;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:fadeIn .3s ease;`;
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 3500);
     },
 
     updateDashboard() {

@@ -2,7 +2,14 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ZipCastellano">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-512.png">
     <title>ZipCastellano | Calificador de Exámenes ICFES</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,14 +25,18 @@
 <body>
     <nav>
         <div class="logo">ZipCastellano</div>
-        <div class="nav-links">
-            <button class="btn" onclick="app.navigate('dashboard')">Inicio</button>
-            <button class="btn" onclick="app.navigate('students')">Estudiantes</button>
-            <button class="btn" onclick="app.navigate('exams')">Exámenes</button>
-            <button class="btn" onclick="app.navigate('stats')">Estadísticas</button>
-            <button class="btn" onclick="app.navigate('settings')"><i data-lucide="settings"></i></button>
-            <button class="btn btn-primary" onclick="app.navigate('scanner')">
-                <i data-lucide="camera"></i> Escanear
+        <!-- Hamburger (solo mobile) -->
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menú" onclick="document.getElementById('nav-links').classList.toggle('open')">
+            <span></span><span></span><span></span>
+        </button>
+        <div class="nav-links" id="nav-links">
+            <button class="btn" onclick="app.navigate('dashboard');document.getElementById('nav-links').classList.remove('open')">🏠 Inicio</button>
+            <button class="btn" onclick="app.navigate('students');document.getElementById('nav-links').classList.remove('open')">👥 Estudiantes</button>
+            <button class="btn" onclick="app.navigate('exams');document.getElementById('nav-links').classList.remove('open')">📝 Exámenes</button>
+            <button class="btn" onclick="app.navigate('stats');document.getElementById('nav-links').classList.remove('open')">📊 Estadísticas</button>
+            <button class="btn" onclick="app.navigate('settings');document.getElementById('nav-links').classList.remove('open')">⚙️ Config</button>
+            <button class="btn btn-primary" onclick="app.navigate('scanner');document.getElementById('nav-links').classList.remove('open')">
+                📷 Escanear
             </button>
         </div>
     </nav>
@@ -86,9 +97,16 @@
 
         <!-- Exams View -->
         <section id="view-exams" class="view animated">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h1>Exámenes</h1>
-                <button class="btn btn-primary" onclick="app.navigate('exam-editor')">Nuevo Examen</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                <h1>📝 Exámenes</h1>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn" style="background:#3b82f6;color:white;" onclick="app.importFromSheet()">
+                        ☁️ Cargar desde Sheets
+                    </button>
+                    <button class="btn btn-primary" onclick="app.navigate('exam-editor')">
+                        ➕ Nuevo Examen
+                    </button>
+                </div>
             </div>
             <div id="exam-list" class="grid" style="margin-top: 24px;">
                 <!-- Exam cards -->
@@ -255,6 +273,12 @@
     <script src="js/printer.js"></script>
     <script>
         lucide.createIcons();
+        // Registrar Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('SW registrado', reg.scope))
+                .catch(err => console.log('SW error', err));
+        }
     </script>
 </body>
 </html>
