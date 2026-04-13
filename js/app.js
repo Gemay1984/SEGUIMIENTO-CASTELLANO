@@ -24,24 +24,10 @@ const app = {
         }
     },
 
-    async pushStudentsToSheet(studentsList) {
-        if (!settings.apiUrl) return;
-        try {
-            await fetch(settings.apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'saveStudents', students: studentsList })
-            });
-            app.toast('✅ Estudiantes guardados en Sheets');
-        } catch (err) {
-            app.toast('⚠️ No se pudo sincronizar estudiantes', true);
-            console.error('pushStudents failed', err);
-        }
-    },
-
     async importFromSheet() {
         if (!settings.apiUrl) return alert("Configura la URL de API primero en ⚙️");
         try {
+            app.toast('⏳ Sincronizando datos...');
             const res = await fetch(settings.apiUrl);
             const data = await res.json();
             
@@ -55,25 +41,56 @@ const app = {
                 localStorage.setItem('zc_exams', JSON.stringify(data.exams));
                 exams.renderList();
             }
+            if (data.results) {
+                localStorage.setItem('zc_results', JSON.stringify(data.results));
+            }
             
-            alert(`¡Sincronización Total Exitosa!`);
+            app.updateDashboard();
+            alert(`¡Sincronización Total Exitosa!\nDatos cargados: ${data.students?.length || 0} estudiantes, ${data.exams?.length || 0} exámenes y ${data.results?.length || 0} resultados.`);
         } catch (err) {
-            alert("Error al importar desde Sheets. Revisa la URL.");
+            console.error(err);
+            alert("Error al importar desde Sheets. Revisa la URL y que el script esté publicado.");
+        }
+    },
+
+    // ─── Sync via GET (no CORS issues) ───────────────────────────
+    gasGet(payload) {
+        return new Promise((resolve) => {
+            const url = settings.apiUrl + '?data=' + encodeURIComponent(JSON.stringify(payload));
+            const img = new Image();
+            img.onload = img.onerror = () => resolve(true);
+            img.src = url;
+            setTimeout(() => resolve(true), 8000);
+        });
+    },
+
+    async pushResultToSheet(result) {
+        if (!settings.apiUrl) return;
+        try {
+            // Enviamos el resultado individual
+            await this.gasGet({ action: 'saveResult', ...result });
+        } catch (err) {
+            console.error('pushResult failed', err);
         }
     },
 
     async pushExamsToSheet() {
         if (!settings.apiUrl) return;
         try {
-            await fetch(settings.apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'saveExams', exams: exams.list })
-            });
-            app.toast('✅ Examen guardado en Sheets');
+            await this.gasGet({ action: 'saveExams', exams: exams.list });
+            app.toast('✅ Exámenes sincronizados');
         } catch (err) {
-            app.toast('⚠️ No se pudo sincronizar el examen', true);
-            console.error('pushExams failed', err);
+            app.toast('⚠️ Error al sincronizar exámenes', true);
+        }
+    },
+
+    async pushStudentsToSheet(studentsList) {
+        if (!settings.apiUrl) return;
+        try {
+            await this.gasGet({ action: 'saveStudents', students: studentsList });
+            app.toast('✅ Estudiantes sincronizados');
+        } catch (err) {
+            app.toast('⚠️ Error al sincronizar estudiantes', true);
         }
     },
 
@@ -91,7 +108,15 @@ const app = {
         
         const lastExam = document.getElementById('last-exam-name');
         if (lastExam && exams.list.length > 0) {
-            lastExam.innerText = exams.list[exams.list.length - 1].name;
+            const latest = exams.list[exams.list.length - 1];
+            lastExam.innerText = latest.name;
+        }
+
+        const results = JSON.parse(localStorage.getItem('zc_results') || '[]');
+        if (results.length > 0) {
+            const avg = Math.round(results.reduce((acc, r) => acc + r.pct, 0) / results.length);
+            const dashboardH1 = document.querySelector('#view-dashboard h1');
+            if (dashboardH1) dashboardH1.innerHTML = `Panel de Control <span style="font-size:0.9rem; font-weight:400; background:var(--accent); padding:4px 10px; border-radius:12px; margin-left:10px;">Promedio: ${avg}%</span>`;
         }
     }
 };
@@ -251,16 +276,59 @@ const exams = {
     renderList() {
         const container = document.getElementById('exam-list');
         if (!container) return;
+        if (this.list.length === 0) {
+            container.innerHTML = `<div class="glass-card" style="padding:30px;text-align:center;color:var(--text-muted);grid-column:1/-1;">
+                <p style="font-size:2rem;">📝</p>
+                <p style="margin-top:8px;">No hay exámenes aún.</p>
+                <button class="btn btn-primary" style="margin-top:16px;" onclick="app.navigate('exam-editor')">Crear primer examen</button>
+            </div>`;
+            return;
+        }
         container.innerHTML = this.list.map(e => `
-            <div class="glass-card p-4" style="padding: 20px;">
-                <h4>${e.name}</h4>
-                <p class="text-muted">${e.grade} - ${e.questions.length} preguntas</p>
-                <div style="margin-top: 15px; display: flex; gap: 8px;">
-                    <button class="btn" style="padding: 6px 12px; font-size: 0.8rem;" onclick="exams.showPrintDialog('${e.id}')">Imprimir Hojas</button>
-                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="app.navigate('scanner')">Calificar</button>
+            <div class="glass-card" style="padding:20px; display:flex; flex-direction:column; gap:12px;">
+                <div>
+                    <h4 style="font-size:1.05rem;">${e.name}</h4>
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-top:4px;">
+                        📚 ${e.grade} &nbsp;·&nbsp; ❓ ${e.questions.length} preguntas
+                        &nbsp;·&nbsp; 📅 ${new Date(e.date).toLocaleDateString()}
+                    </p>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn" style="padding:8px 12px; font-size:0.82rem; flex:1; min-width:100px;" 
+                        onclick="exams.showPrintDialog('${e.id}')">🖨️ Imprimir</button>
+                    <button class="btn btn-primary" style="padding:8px 12px; font-size:0.82rem; flex:1; min-width:100px;" 
+                        onclick="app.navigate('scanner')">📷 Calificar</button>
+                    <button class="btn" style="padding:8px 12px; font-size:0.82rem; flex:1; min-width:100px; background:#10b981; color:white;" 
+                        onclick="exams.syncOne('${e.id}')">☁️ Guardar en Sheets</button>
+                    <button class="btn" style="padding:8px 12px; font-size:0.82rem; background:#ef444422; color:#f87171; border:1px solid #ef4444;" 
+                        onclick="exams.delete('${e.id}')">🗑️</button>
                 </div>
             </div>
         `).join('');
+    },
+
+    async syncOne(examId) {
+        const exam = this.list.find(e => e.id === examId);
+        if (!exam) return;
+        if (!settings.apiUrl) return alert('Configura la URL de API primero en ⚙️ Config.');
+        app.toast('⏳ Enviando a Sheets...');
+        try {
+            await app.gasGet({ action: 'saveExams', exams: this.list });
+            app.toast(`✅ "${exam.name}" guardado en Sheets`);
+        } catch (err) {
+            app.toast('⚠️ Sin conexión. Verifica internet.', true);
+            console.error('syncOne error:', err);
+        }
+    },
+
+    delete(examId) {
+        const exam = this.list.find(e => e.id === examId);
+        if (!exam) return;
+        if (!confirm(`¿Eliminar el examen "${exam.name}"?`)) return;
+        this.list = this.list.filter(e => e.id !== examId);
+        localStorage.setItem('zc_exams', JSON.stringify(this.list));
+        this.renderList();
+        app.toast('🗑️ Examen eliminado');
     },
 
     showPrintDialog(examId) {
@@ -360,7 +428,7 @@ const exams = {
 const settings = {
     apiUrl: '',
     load() {
-        const defaultUrl = 'https://script.google.com/macros/s/AKfycbxLttjxgGKRECkD94Rpl6M8MQh4SoRiGaDmMabFGylZmjV-_neZ7lEjwuSZVVthSlL0qA/exec';
+        const defaultUrl = 'https://script.google.com/macros/s/AKfycby0if64vpsAWakJMXOViner0A8E0wGucLPWdEyBJwVpFY01Fe3mHWBpNNS7AzIpBQ8Omg/exec';
         this.apiUrl = localStorage.getItem('zc_api_url') || defaultUrl;
         
         const input = document.getElementById('api-url');
@@ -380,14 +448,20 @@ const settings = {
     async testConnection() {
         if (!this.apiUrl) return alert("Ingresa una URL primero");
         const status = document.getElementById('settings-status');
-        status.innerText = "Probando...";
+        status.innerText = "⏳ Probando conexión...";
+        status.style.color = "white";
+        
         try {
-            const res = await fetch(this.apiUrl, { method: 'POST', body: JSON.stringify({ action: 'ping' }) });
-            status.innerText = "¡Conexión exitosa!";
+            // Usamos un fetch simple para verificar si el script responde
+            // mode: 'no-cors' permite que la petición salga aunque Google no tenga los headers de CORS
+            await fetch(this.apiUrl, { mode: 'no-cors' });
+            status.innerText = "✅ ¡Conexión establecida con el script!";
             status.style.color = "var(--accent)";
+            app.toast("Conexión exitosa");
         } catch (err) {
-            status.innerText = "Error de conexión. Verifica la URL y los permisos CORS.";
-            status.style.color = "var(--secondary)";
+            status.innerText = "❌ Error: La URL no es válida o el script no está publicado.";
+            status.style.color = "#ef4444";
+            console.error("Test connection failed", err);
         }
     }
 };
@@ -395,60 +469,119 @@ const settings = {
 const stats = {
     charts: {},
     update() {
-        // Mock data aggregation for demo
-        this.renderCompetencyChart();
-        this.renderGroupChart();
-        this.renderHistoryChart();
+        const results = JSON.parse(localStorage.getItem('zc_results') || '[]');
+        if (results.length === 0) {
+            console.log("No hay resultados para estadísticas");
+            return;
+        }
+        this.renderCompetencyChart(results);
+        this.renderGroupChart(results);
+        this.renderHistoryChart(results);
     },
-    renderCompetencyChart() {
+    renderCompetencyChart(results) {
         const ctx = document.getElementById('competency-chart');
         if (!ctx) return;
+        
+        // Agregar porcentajes por competencias
+        const comps = { c1:0, c2:0, c3:0, c4:0, count: { c1:0, c2:0, c3:0, c4:0 } };
+        results.forEach(r => {
+            if (!r.competencies) return;
+            Object.keys(r.competencies).forEach(c => {
+                const data = r.competencies[c];
+                comps[c] += (data.correct / data.total) * 100;
+                comps.count[c]++;
+            });
+        });
+
+        const labels = ['Semántica', 'Sintáctica', 'Pragmática', 'Enciclopédica'];
+        const values = ['c1', 'c2', 'c3', 'c4'].map(c => comps.count[c] > 0 ? Math.round(comps[c]/comps.count[c]) : 0);
+
         if (this.charts.comp) this.charts.comp.destroy();
         this.charts.comp = new Chart(ctx, {
             type: 'radar',
             data: {
-                labels: ['Semántica', 'Sintáctica', 'Pragmática', 'Enciclopédica'],
+                labels: labels,
                 datasets: [{
-                    label: 'Promedio General',
-                    data: [85, 70, 60, 40], // Mock
+                    label: 'Puntaje (%)',
+                    data: values,
                     backgroundColor: 'rgba(99, 102, 241, 0.2)',
                     borderColor: 'var(--primary)',
                     pointBackgroundColor: 'var(--primary)'
                 }]
             },
-            options: { scales: { r: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' } } } }
+            options: { 
+                scales: { r: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.1)' }, angleLines: { color: 'rgba(255,255,255,0.1)' } } },
+                plugins: { legend: { display: false } }
+            }
         });
     },
-    renderGroupChart() {
+    renderGroupChart(results) {
         const ctx = document.getElementById('group-chart');
         if (!ctx) return;
+
+        const groups = {};
+        results.forEach(r => {
+            // Buscamos el grado del estudiante si no viene en el resultado
+            const std = students.list.find(s => s.id === r.studentId);
+            const grade = std ? std.grade : (r.grade || 'N/A');
+            if (!groups[grade]) groups[grade] = { sum: 0, count: 0 };
+            groups[grade].sum += r.pct;
+            groups[grade].count++;
+        });
+
+        const labels = Object.keys(groups).sort();
+        const values = labels.map(l => Math.round(groups[l].sum / groups[l].count));
+
         if (this.charts.group) this.charts.group.destroy();
         this.charts.group = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['11-01', '11-02', '11-03'],
+                labels: labels,
                 datasets: [{
-                    label: 'Puntaje Promedio',
-                    data: [78, 82, 74],
-                    backgroundColor: ['var(--primary)', 'var(--secondary)', 'var(--accent)']
+                    label: 'Promedio (%)',
+                    data: values,
+                    backgroundColor: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#3b82f6'].slice(0, labels.length)
                 }]
+            },
+            options: { 
+                scales: { y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.1)' } } },
+                plugins: { legend: { display: false } }
             }
         });
     },
-    renderHistoryChart() {
+    renderHistoryChart(results) {
         const ctx = document.getElementById('history-chart');
         if (!ctx) return;
+
+        // Agrupar por fecha corto (YYYY-MM-DD)
+        const daily = {};
+        results.forEach(r => {
+            const date = r.date.split('T')[0];
+            if (!daily[date]) daily[date] = { sum: 0, count: 0 };
+            daily[date].sum += r.pct;
+            daily[date].count++;
+        });
+
+        const labels = Object.keys(daily).sort();
+        const values = labels.map(l => Math.round(daily[l].sum / daily[l].count));
+
         if (this.charts.history) this.charts.history.destroy();
         this.charts.history = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: ['Ene', 'Feb', 'Mar', 'Abr'],
+                labels: labels,
                 datasets: [{
                     label: 'Evolución',
-                    data: [65, 72, 68, 80],
+                    data: values,
                     borderColor: 'var(--accent)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    fill: true,
                     tension: 0.4
                 }]
+            },
+            options: {
+                scales: { y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.1)' } } },
+                plugins: { legend: { display: false } }
             }
         });
     }

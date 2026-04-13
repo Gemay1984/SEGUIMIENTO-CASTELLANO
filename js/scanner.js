@@ -246,7 +246,7 @@ const scanner = {
         const scoreStr = `${correct}/${exam.questions.length}`;
 
         // Guardar para confirmar luego
-        this.currentResult = { student, exam, detectedAnswers, score, correct, competencyMap };
+        this.currentResult = { student, exam, detectedAnswers, score, correct, pct: score, competencyMap };
 
         // Llenar el panel
         document.getElementById('res-name').textContent  = student.name;
@@ -270,35 +270,34 @@ const scanner = {
     /* ─── Guardar resultado ─── */
     async saveResult() {
         if (!this.currentResult) return;
-        const { student, exam, score, correct, competencyMap } = this.currentResult;
+        const { student, exam, score, correct, pct, competencyMap } = this.currentResult;
 
         // Guardar localmente
         const resultObj = {
             date: new Date().toISOString(),
             studentId: student.id,
             studentName: student.name,
+            grade: student.grade,
             examName: exam.name,
             examId: exam.id,
             score: `${correct}/${exam.questions.length}`,
-            pct: score,
+            pct: pct,
             competencies: competencyMap
         };
+        
         const history = JSON.parse(localStorage.getItem('zc_results') || '[]');
         history.push(resultObj);
         localStorage.setItem('zc_results', JSON.stringify(history));
 
-        // Sincronizar con Sheets
+        // Sincronizar con Sheets usando el método robusto (gasGet)
         if (settings.apiUrl) {
-            try {
-                await fetch(settings.apiUrl, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'saveResult', ...resultObj })
-                });
-            } catch (e) { console.error('Sync error', e); }
+            app.toast('⏳ Sincronizando en la nube...');
+            await app.pushResultToSheet(resultObj);
         }
 
-        alert(`✅ Resultado guardado: ${student.name} — ${correct}/${exam.questions.length}`);
+        app.toast(`✅ ¡Evaluación de ${student.name} guardada!`);
         this.discardResult();
+        app.updateDashboard();
     },
 
     discardResult() {

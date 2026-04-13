@@ -4,7 +4,7 @@
  * Permite uso offline y mejora la velocidad de carga.
  */
 
-const CACHE_NAME = 'zipcastellano-v1';
+const CACHE_NAME = 'zipcastellano-v3';
 const CACHE_URLS = [
   './',
   './index.html',
