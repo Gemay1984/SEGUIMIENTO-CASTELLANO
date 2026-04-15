@@ -32,17 +32,39 @@ const app = {
             if (!data) return;
             
             if (data.students && data.students.length > 0) {
-                students.list = data.students;
+                // Mapear llaves para soportar español e inglés desde el Sheet
+                students.list = data.students.map(s => ({
+                    id: s.id || s.ID || s.Id || s.codigo || s.Codigo || s.Documento || '',
+                    name: s.name || s.nombre || s.Nombre || s.estudiante || s.Estudiante || s.Alumno || '',
+                    grade: s.grade || s.grado || s.Grado || s.curso || s.Curso || s.Grupo || 'S/G'
+                }));
                 students.save();
                 students.render();
             }
             if (data.exams && data.exams.length > 0) {
-                exams.list = data.exams;
-                localStorage.setItem('zc_exams', JSON.stringify(data.exams));
+                exams.list = data.exams.map(e => ({
+                    id: String(e.id || e.ID || e.Id || Date.now()),
+                    name: e.name || e.nombre || e.Nombre || e.titulo || e.Titulo || e.Examen || 'Examen',
+                    grade: e.grade || e.grado || e.Grado || e.curso || e.Curso || e.Grupo || 'S/G',
+                    date: e.date || e.fecha || e.Fecha || e.creado || '',
+                    questions: e.questions || e.preguntas || e["Preguntas (JSON)"] || e.Preguntas || []
+                }));
+                localStorage.setItem('zc_exams', JSON.stringify(exams.list));
                 exams.renderList();
             }
             if (data.results && data.results.length > 0) {
-                localStorage.setItem('zc_results', JSON.stringify(data.results));
+                const mappedResults = data.results.map(r => ({
+                    date: r.date || r.fecha || r.Fecha || '',
+                    studentId: r.studentId || r.id_estudiante || r.ID_Estudiante || r['Student ID'] || '',
+                    studentName: r.studentName || r.nombre_estudiante || r.Nombre_Estudiante || r.Estudiante || r['Student Name'] || '',
+                    grade: r.grade || r.grado || r.Grado || 'S/G',
+                    examName: r.examName || r.nombre_examen || r.Nombre_Examen || r.Examen || r['Exam Name'] || '',
+                    examId: r.examId || r.id_examen || r.ID_Examen || r['Exam ID'] || '',
+                    score: r.score || r.puntaje || r.Puntaje || r.nota || r.Nota || 0,
+                    pct: r.pct || r.porcentaje || r.Porcentaje || 0,
+                    competencies: r.competencies || r.competencias || r.Competencias || {}
+                }));
+                localStorage.setItem('zc_results', JSON.stringify(mappedResults));
             }
             
             app.updateDashboard();
