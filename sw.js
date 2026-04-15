@@ -1,10 +1,10 @@
 /**
  * ZIPCASTELLANO SERVICE WORKER
- * Versión: 3.8 (Update Force)
+ * Versión: 3.9 (Update Force)
  * Permite uso offline y mejora la velocidad de carga.
  */
 
-const CACHE_NAME = 'zipcastellano-v3.8';
+const CACHE_NAME = 'zipcastellano-v3.9';
 const CACHE_URLS = [
   './',
   './index.html',
