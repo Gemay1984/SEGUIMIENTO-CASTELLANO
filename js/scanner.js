@@ -100,33 +100,17 @@ const scanner = {
     onAppTap() {
         if (!this.isActive || this.cooldown) return;
         
+        if (!this.currentStudent || !this.currentExam) {
+            app.toast('⚠️ Primero enfoca el código QR para identificar al estudiante.', true);
+            return;
+        }
+
         this.cooldown = true;
-        this.setStatus(`Analizando imagen... ¡No te muevas!`, 'var(--accent)');
+        this.setStatus(`✅ Calificando examen de ${this.currentStudent.name}...`, 'var(--accent)');
         
         setTimeout(() => {
-            // First, if no student is active, try an aggressive QR scan on the whole frame
-            if (!this.currentStudent || !this.currentExam) {
-                const imageData = this.ctx.getImageData(0,0, this.canvas.width, this.canvas.height);
-                const qr = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: 'attemptBoth'
-                });
-                
-                if (qr && qr.data.startsWith('ZC|')) {
-                    this.onQRDetected(qr.data);
-                }
-            }
-
-            if (!this.currentStudent || !this.currentExam) {
-                app.toast('No se encontró el QR. Acércate más e intenta de nuevo.', true);
-                this.setStatus('Acércate al QR', 'white');
-                this.cooldown = false;
-                return;
-            }
-            
-            // Si hay estudiante, procesa las burbujas
-            this.setStatus(`✅ Calificando examen de ${this.currentStudent.name}...`, 'var(--accent)');
             this.gradeSheet(this.currentStudent, this.currentExam);
-        }, 150); // Pequeño retraso para evitar fotos movidas por el choque del dedo
+        }, 150); // Pequeño retraso para evitar fotos movidas
     },
 
     /* ─── Loop de procesamiento ─── */
@@ -180,7 +164,18 @@ const scanner = {
 
         this.currentStudent = student;
         this.currentExam = exam;
-        this.setStatus(`✅ ${student.name} - TOCA LA PANTALLA PARA CALIFICAR`, '#10b981');
+
+        // Feedback sonoro y háptico muy fuerte
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        try {
+            const actx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = actx.createOscillator();
+            osc.type = 'sine'; osc.frequency.setValueAtTime(880, actx.currentTime);
+            osc.connect(actx.destination);
+            osc.start(); osc.stop(actx.currentTime + 0.15);
+        } catch (e) {}
+
+        this.setStatus(`✅ Estudiante: ${student.name} - AHORA TOCA LA PANTALLA`, '#10b981');
     },
 
     /* ─── Calificación de burbujas ─── */
