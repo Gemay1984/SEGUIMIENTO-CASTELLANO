@@ -16,8 +16,11 @@ const scanner = {
     stream: null,
     isActive: false,
     lastQR: null,
+    currentStudent: null,
+    currentExam: null,
     currentResult: null,
     cooldown: false,
+    clickBound: null,
 
     /* ─── Inicialización ─── */
     init() {
@@ -66,7 +69,16 @@ const scanner = {
             this.video.srcObject = this.stream;
             await this.video.play();
             this.isActive = true;
-            this.setStatus('🔍 Busca el código QR de la hoja...', 'var(--accent)');
+            this.currentStudent = null;
+            this.currentExam = exam;
+            this.lastQR = null;
+            
+            if (!this.clickBound) {
+                this.clickBound = this.onAppTap.bind(this);
+                this.canvas.addEventListener('click', this.clickBound);
+            }
+
+            this.setStatus('🔍 Busca el QR y alinea la hoja...', 'var(--accent)');
             this.loop();
         } catch (err) {
             console.error(err);
@@ -78,6 +90,28 @@ const scanner = {
         this.isActive = false;
         this.stream?.getTracks().forEach(t => t.stop());
         this.ctx?.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        if (this.clickBound) {
+            this.canvas.removeEventListener('click', this.clickBound);
+            this.clickBound = null;
+        }
+    },
+
+    /* ─── Tap to Capture ─── */
+    onAppTap() {
+        if (!this.isActive || this.cooldown) return;
+        if (!this.currentStudent || !this.currentExam) {
+            app.toast('⚠️ Primero enfoca el código QR para identificar al estudiante.', true);
+            return;
+        }
+        
+        // Tap para calificar!
+        this.cooldown = true;
+        this.setStatus(`✅ Capturando burbujas... ¡No te muevas!`, 'var(--accent)');
+        
+        // Timeout muy breve para dejar que la cámara capte el tap sin borrosidad
+        setTimeout(() => {
+            this.gradeSheet(this.currentStudent, this.currentExam);
+        }, 300);
     },
 
     /* ─── Loop de procesamiento ─── */
@@ -102,43 +136,34 @@ const scanner = {
         });
 
         if (qr && qr.data.startsWith('ZC|')) {
-            this.drawOverlay(true, qr.location);
             if (qr.data !== this.lastQR) {
                 this.lastQR = qr.data;
                 this.onQRDetected(qr.data);
             }
-        } else {
-            this.drawOverlay(false);
         }
+        
+        this.drawOverlay();
     },
 
     /* ─── QR detectado ─── */
     onQRDetected(data) {
         const parts = data.split('|');
-        // Format: ZC|studentId|examId
-        if (parts.length < 3) {
-            this.setStatus('⚠️ QR no reconocido', 'orange');
-            return;
-        }
+        if (parts.length < 3) return;
+        
         const studentId = decodeURIComponent(parts[1]);
         const examId    = decodeURIComponent(parts[2]);
 
         const exam    = exams.list.find(e => e.id === examId);
         const student = students.list.find(s => String(s.id) === String(studentId));
 
-        if (!exam) {
-            this.setStatus('⚠️ Examen no encontrado en la app. ¿Sincronizaste?', 'orange');
-            return;
-        }
-        if (!student) {
-            this.setStatus(`⚠️ Estudiante ID "${studentId}" no encontrado`, 'orange');
+        if (!exam || !student) {
+            this.setStatus('⚠️ Datos no coincidentes. ¿Sincronizaste?', 'orange');
             return;
         }
 
-        // Congelar escáner y calificar
-        this.cooldown = true;
-        this.setStatus(`✅ Detectado: ${student.name} — Analizando burbujas...`, 'var(--accent)');
-        this.gradeSheet(student, exam);
+        this.currentStudent = student;
+        this.currentExam = exam;
+        this.setStatus(`✅ ${student.name} - TOCA LA PANTALLA PARA CALIFICAR`, '#10b981');
     },
 
     /* ─── Calificación de burbujas ─── */
@@ -155,34 +180,48 @@ const scanner = {
     },
 
     analyzeBubbles(ctx, canvas, exam) {
-        /**
-         * ANÁLISIS DE BURBUJAS
-         * Estrategia: 
-         *  - Convertir a escala de grises
-         *  - Dividir la zona de preguntas en filas y columnas
-         *  - Para cada pregunta, determinar qué burbuja (A–E) tiene más pixeles oscuros
-         * 
-         * Nota: Para máxima precisión, el QR debe estar centrado y la hoja nivelada.
-         * La zona de burbujas se estima en el 40-90% vertical de la imagen,
-         * y en el 10-90% horizontal.
-         */
         const W = canvas.width;
         const H = canvas.height;
 
-        // Zona estimada de burbujas (puede ajustarse con calibración)
-        const zoneX = Math.floor(W * 0.08);
-        const zoneY = Math.floor(H * 0.42);
-        const zoneW = Math.floor(W * 0.84);
-        const zoneH = Math.floor(H * 0.46);
+        // Recuperar zona A4 que se pinta en la pantalla (las guías rojas)
+        const margin = 20;
+        let pW, pH;
+        if (H > W) {
+            pW = W - margin * 2;
+            pH = pW * 1.414;
+            if (pH > H - margin * 2) {
+                pH = H - margin * 2;
+                pW = pH / 1.414;
+            }
+        } else {
+            pH = H - margin * 2;
+            pW = pH / 1.414;
+        }
+        const pX = (W - pW) / 2;
+        const pY = (H - pH) / 2;
+
+        // Dentro del papel A4, la cuadricula de burbujas inicia ~26% hacia abajo y ~10% a la izquierda
+        // Estas son proporciones basadas en printer.js:
+        // top: 22mm + header(28mm) + info(15mm) + student(25mm) = 90mm. 90/297 = 0.30 (30% de la altura total ajustado visualmente)
+        // izquierda: 22mm / 210mm = 0.104
+        
+        const zoneX = pX + (pW * 0.12);
+        const zoneY = pY + (pH * 0.32);
+        const zoneW = pW * 0.76;
+        const zoneH = pH * 0.50; // El espacio donde caben todas
 
         const numQ   = exam.questions.length;
         const cols   = 3;
         const rows   = Math.ceil(numQ / cols);
         const colW   = zoneW / cols;
-        const rowH   = zoneH / rows;
+        // La altura de cada fila se calcula con printer (maximo 10.5mm / 297mm = 0.035)
+        const rowH   = Math.min(pH * 0.035, zoneH / rows); 
         const options = ['A', 'B', 'C', 'D', 'E'];
-
         const answers = [];
+
+        // Modo debug: pintar recuadro master del A4 en verde rápido
+        ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2;
+        ctx.strokeRect(zoneX, zoneY, zoneW, zoneH);
 
         for (let q = 0; q < numQ; q++) {
             const col = Math.floor(q / rows);
@@ -191,11 +230,12 @@ const scanner = {
             const qX = zoneX + col * colW;
             const qY = zoneY + row * rowH;
 
-            // Cada opción ocupa 1/5 del ancho de la celda de la pregunta
-            const optW = colW * 0.7 / 5;
-            const optStartX = qX + colW * 0.18; // dejar espacio para el número
+            // En la celda, las esferitas ABCDE ocupan la derecha
+            // Dejar 18% para el número y offset
+            const optW = (colW * 0.6) / 5;
+            const optStartX = qX + colW * 0.22;
 
-            let darkestOption = null;
+            let darkestOption = 'A';
             let darkestScore  = Infinity;
 
             options.forEach((opt, oi) => {
@@ -203,6 +243,8 @@ const scanner = {
                 const oy = qY + rowH * 0.1;
                 const ow = optW * 0.8;
                 const oh = rowH * 0.8;
+
+                ctx.strokeRect(ox, oy, ow, oh); // feedback visual de qué procesa
 
                 const imgData = ctx.getImageData(
                     Math.max(0, Math.floor(ox)),
@@ -223,7 +265,7 @@ const scanner = {
                 }
             });
 
-            answers.push(darkestOption || 'A');
+            answers.push(darkestOption);
         }
 
         return answers;
@@ -314,34 +356,50 @@ const scanner = {
         if (el) { el.textContent = msg; el.style.color = color; }
     },
 
-    drawOverlay(found, location) {
+    drawOverlay() {
         const ctx = this.ctx;
         const W = this.canvas.width;
         const H = this.canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-        if (found && location) {
-            // Highlight QR polygon
-            ctx.strokeStyle = '#10b981';
-            ctx.lineWidth   = 4;
-            ctx.beginPath();
-            ctx.moveTo(location.topLeftCorner.x,     location.topLeftCorner.y);
-            ctx.lineTo(location.topRightCorner.x,    location.topRightCorner.y);
-            ctx.lineTo(location.bottomRightCorner.x, location.bottomRightCorner.y);
-            ctx.lineTo(location.bottomLeftCorner.x,  location.bottomLeftCorner.y);
-            ctx.closePath();
-            ctx.stroke();
+        // Guía A4 estricta para alinear
+        const margin = 20;
+        let pW, pH;
+        if (H > W) {
+            pW = W - margin * 2;
+            pH = pW * 1.414;
+            if (pH > H - margin * 2) {
+                pH = H - margin * 2;
+                pW = pH / 1.414;
+            }
         } else {
-            // Guide corners
-            const s = 60;
-            ctx.strokeStyle = '#6366f1';
-            ctx.lineWidth   = 3;
-            [[50, 50], [W - 50 - s, 50], [50, H - 50 - s], [W - 50 - s, H - 50 - s]]
-                .forEach(([x, y]) => ctx.strokeRect(x, y, s, s));
-            ctx.fillStyle = 'rgba(99,102,241,0.7)';
-            ctx.font = '18px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('Centra el QR de la hoja en la cámara', W / 2, 35);
+            pH = H - margin * 2;
+            pW = pH / 1.414;
+        }
+        
+        const pX = (W - pW) / 2;
+        const pY = (H - pH) / 2;
+
+        const s = Math.min(W, H) * 0.1; // Tamaño de la esquina
+        
+        // Si ya reconoció al estudiante, las guías se ponen VERDES, si no, ROJAS.
+        ctx.strokeStyle = this.currentStudent ? '#10b981' : '#ef4444';
+        ctx.lineWidth = 4;
+
+        // Dibujar 4 esquinas del A4
+        [[pX, pY], [pX + pW - s, pY], [pX, pY + pH - s], [pX + pW - s, pY + pH - s]]
+            .forEach(([x, y]) => ctx.strokeRect(x, y, s, s));
+
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.font = 'bold 20px sans-serif';
+        ctx.textAlign = 'center';
+
+        if (this.currentStudent) {
+            ctx.fillStyle = '#10b981';
+            ctx.fillText('¡TOCA LA PANTALLA!', W / 2, pY + pH / 2);
+        } else {
+            ctx.fillStyle = 'white';
+            ctx.fillText('Alinea la hoja completa', W / 2, 40);
         }
     }
 };
