@@ -131,9 +131,9 @@
             <!-- Camera -->
             <div class="glass-card" style="margin-top:16px; display:flex; flex-direction:column; align-items:center; padding:20px; gap:15px;">
                 
-                <div style="position:relative; width:100%; max-width:600px; border-radius:12px; overflow:hidden; background:black;">
+                <div style="position:relative; width:100%; max-width:600px; border-radius:12px; overflow:hidden; background:black; cursor:pointer;" id="camera-container">
                     <video id="video" style="width:100%; display:block;" playsinline></video>
-                    <canvas id="overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                    <canvas id="overlay" style="position:absolute; top:0; left:0; width:100%; height:100%;"></canvas>
                 </div>
 
                 <div id="scanner-controls" style="display:flex; gap:10px;">
@@ -143,9 +143,15 @@
                 <div id="scan-status" style="color:var(--accent); font-size:0.9rem; text-align:center;">Selecciona un examen y activa la cámara.</div>
             </div>
 
-            <!-- Result Panel (hidden until QR detected) -->
+            <!-- Result Panel (hidden until grading complete) -->
             <div id="result-panel" class="glass-card" style="margin-top:16px; padding:24px; display:none;">
-                <h3 style="margin-bottom:16px;">✅ Hoja Detectada</h3>
+                <h3 style="margin-bottom:16px;">✅ Resultado del Examen</h3>
+                
+                <!-- Graded image preview -->
+                <div id="graded-image-container" style="margin-bottom:20px; text-align:center;">
+                    <canvas id="graded-canvas" style="max-width:100%; border-radius:10px; border:2px solid var(--glass-border);"></canvas>
+                </div>
+
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
                     <div>
                         <p><strong>Estudiante:</strong> <span id="res-name">—</span></p>
@@ -157,9 +163,14 @@
                         <div style="color:var(--text-muted);">Puntaje</div>
                     </div>
                 </div>
+                
+                <!-- Detailed answer breakdown -->
+                <div id="res-answers-detail" style="margin-top:16px; max-height:300px; overflow-y:auto;"></div>
+                
                 <div id="res-competencies" style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;"></div>
-                <div style="margin-top:20px; display:flex; gap:10px;">
+                <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
                     <button class="btn btn-primary" onclick="scanner.saveResult()">💾 Guardar y Continuar</button>
+                    <button class="btn" style="background:#3b82f6; color:white;" onclick="scanner.downloadGradedImage()">📥 Descargar Imagen</button>
                     <button class="btn" onclick="scanner.discardResult()">❌ Descartar</button>
                 </div>
             </div>
@@ -271,14 +282,14 @@
         }
     </style>
 
-    <script src="js/app.js?v=3.2"></script>
-    <script src="js/scanner.js?v=3.2"></script>
-    <script src="js/printer.js?v=3.2"></script>
+    <script src="js/app.js?v=3.3"></script>
+    <script src="js/scanner.js?v=3.3"></script>
+    <script src="js/printer.js?v=3.3"></script>
     <script>
         lucide.createIcons();
         // Registrar Service Worker para PWA
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js?v=3.2')
+            navigator.serviceWorker.register('./sw.js?v=5.0')
                 .then(reg => console.log('SW registrado', reg.scope))
                 .catch(err => console.log('SW error', err));
         }
