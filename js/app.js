@@ -33,37 +33,61 @@ const app = {
             
             if (data.students && data.students.length > 0) {
                 // Mapear llaves para soportar español e inglés desde el Sheet
-                students.list = data.students.map(s => ({
-                    id: s.id || s.ID || s.Id || s.codigo || s.Codigo || s.Documento || '',
-                    name: s.name || s.nombre || s.Nombre || s.estudiante || s.Estudiante || s.Alumno || '',
-                    grade: s.grade || s.grado || s.Grado || s.curso || s.Curso || s.Grupo || 'S/G'
-                }));
+                students.list = data.students.map(s => {
+                    let nombreFinal = String(s.name || s.nombre || s.Nombre || s.estudiante || s.Estudiante || s.Alumno || '');
+                    if (s.Apellido) nombreFinal += ' ' + s.Apellido;
+                    if (s.apellido) nombreFinal += ' ' + s.apellido;
+                    
+                    return {
+                        id: String(s.id || s.ID || s.Id || s.codigo || s.Codigo || s['ID/Código'] || s.Documento || ''),
+                        name: nombreFinal.trim(),
+                        grade: String(s.grade || s.grado || s.Grado || s.curso || s.Curso || s.Grupo || 'S/G')
+                    };
+                });
                 students.save();
                 students.render();
+            } else {
+                app.toast('⚠️ Atención: Tu hoja debe llamarse exactamente "Estudiantes". Actualmente se llama "base est".', true);
             }
+
             if (data.exams && data.exams.length > 0) {
-                exams.list = data.exams.map(e => ({
-                    id: String(e.id || e.ID || e.Id || Date.now()),
-                    name: e.name || e.nombre || e.Nombre || e.titulo || e.Titulo || e.Examen || 'Examen',
-                    grade: e.grade || e.grado || e.Grado || e.curso || e.Curso || e.Grupo || 'S/G',
-                    date: e.date || e.fecha || e.Fecha || e.creado || '',
-                    questions: e.questions || e.preguntas || e["Preguntas (JSON)"] || e.Preguntas || []
-                }));
+                exams.list = data.exams.map(e => {
+                    let q = e.questions || e.preguntas || e["Preguntas (JSON)"] || e.Preguntas || [];
+                    if (typeof q === 'string') {
+                        try { q = JSON.parse(q); } catch(err) { q = []; }
+                    }
+                    return {
+                        id: String(e.id || e.ID || e.Id || Date.now()),
+                        name: String(e.name || e.nombre || e.Nombre || e.titulo || e.Titulo || e.Examen || 'Examen'),
+                        grade: String(e.grade || e.grado || e.Grado || e.curso || e.Curso || e.Grupo || 'S/G'),
+                        date: String(e.date || e.fecha || e.Fecha || e.creado || ''),
+                        questions: q
+                    };
+                });
                 localStorage.setItem('zc_exams', JSON.stringify(exams.list));
                 exams.renderList();
+            } else {
+                app.toast('Atención: La hoja "Examenes" está vacía', true);
             }
+
             if (data.results && data.results.length > 0) {
-                const mappedResults = data.results.map(r => ({
-                    date: r.date || r.fecha || r.Fecha || '',
-                    studentId: r.studentId || r.id_estudiante || r.ID_Estudiante || r['Student ID'] || '',
-                    studentName: r.studentName || r.nombre_estudiante || r.Nombre_Estudiante || r.Estudiante || r['Student Name'] || '',
-                    grade: r.grade || r.grado || r.Grado || 'S/G',
-                    examName: r.examName || r.nombre_examen || r.Nombre_Examen || r.Examen || r['Exam Name'] || '',
-                    examId: r.examId || r.id_examen || r.ID_Examen || r['Exam ID'] || '',
-                    score: r.score || r.puntaje || r.Puntaje || r.nota || r.Nota || 0,
-                    pct: r.pct || r.porcentaje || r.Porcentaje || 0,
-                    competencies: r.competencies || r.competencias || r.Competencias || {}
-                }));
+                let mappedResults = data.results.map(r => {
+                    let comps = r.competencies || r.competencias || r.Competencias || {};
+                    if (typeof comps === 'string') {
+                        try { comps = JSON.parse(comps); } catch(err) { comps = {}; }
+                    }
+                    return {
+                        date: String(r.date || r.fecha || r.Fecha || ''),
+                        studentId: String(r.studentId || r.id_estudiante || r.ID_Estudiante || r['Student ID'] || ''),
+                        studentName: String(r.studentName || r.nombre_estudiante || r.Nombre_Estudiante || r.Estudiante || r['Student Name'] || ''),
+                        grade: String(r.grade || r.grado || r.Grado || 'S/G'),
+                        examName: String(r.examName || r.nombre_examen || r.Nombre_Examen || r.Examen || r['Exam Name'] || ''),
+                        examId: String(r.examId || r.id_examen || r.ID_Examen || r['Exam ID'] || ''),
+                        score: parseFloat(r.score || r.puntaje || r.Puntaje || r.nota || r.Nota || 0),
+                        pct: parseFloat(r.pct || r.porcentaje || r.Porcentaje || 0),
+                        competencies: comps
+                    };
+                });
                 localStorage.setItem('zc_results', JSON.stringify(mappedResults));
             }
             
@@ -86,11 +110,11 @@ const app = {
             console.log("Enviando petición a GAS...", payload ? "POST" : "GET");
             const options = {
                 method: payload ? 'POST' : 'GET',
-                // Forzamos text/plain para evadir el preflight OPTIONS y usamos CORS normal
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' }
             };
             
             if (payload) {
+                // Solo para POST agregamos el header text/plain para evadir OPTIONS preflight
+                options.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
                 options.body = JSON.stringify(payload);
             }
 
@@ -500,8 +524,8 @@ const settings = {
         
         try {
             // Un pre-chequeo forzando cors estricto para ver si Google responde JSON (exitoso) 
-            // o HTML (CORS error de login = Permisos incorrectos)
-            const res = await fetch(this.apiUrl, { method: 'GET', headers: { 'Content-Type': 'text/plain' } });
+            // Un pre-chequeo sin headers extra para no detonar bloqueos CORS
+            const res = await fetch(this.apiUrl, { method: 'GET' });
             if (!res.ok) throw new Error("HTTP Status " + res.status);
             
             const data = await res.json();
