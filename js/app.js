@@ -55,37 +55,38 @@ const app = {
 
     // ─── Nueva Comunicación Robusta (GET/POST) ────────────────────────
     async gasRequest(payload = null) {
-        if (!settings.apiUrl) return null;
-        
-        const options = {
-            method: payload ? 'POST' : 'GET',
-            mode: 'cors', // Intentamos CORS primero
-            headers: {
-                'Content-Type': 'text/plain' // Usamos text/plain para evitar preflight OPTIONS si es posible
-            }
-        };
-        
-        if (payload) {
-            options.body = JSON.stringify(payload);
+        if (!settings.apiUrl) {
+            alert("No hay URL configurada. Ve a Configuración.");
+            return null;
         }
-
+        
         try {
-            const res = await fetch(settings.apiUrl, options);
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            return await res.json();
-        } catch (err) {
-            console.warn('CORS/Fetch error, intentando modo no-cors para envío...', err);
+            console.log("Enviando petición a GAS...", payload ? "POST" : "GET");
+            const options = {
+                method: payload ? 'POST' : 'GET',
+                // Forzamos text/plain para evadir el preflight OPTIONS y usamos CORS normal
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+            };
             
-            // Si falló y es un POST, intentamos "no-cors" como último recurso (fuego y olvido)
             if (payload) {
-                fetch(settings.apiUrl, { 
-                    method: 'POST', 
-                    body: JSON.stringify(payload), 
-                    mode: 'no-cors' 
-                });
-                return { success: true, note: 'sent_no_cors' };
+                options.body = JSON.stringify(payload);
             }
-            throw err;
+
+            const res = await fetch(settings.apiUrl, options);
+            
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const data = await res.json();
+            
+            // Si GAS captura su propio error y devuelve {success:false, error: ...}
+            if (data && data.success === false && data.error) {
+                throw new Error("Error interno del Script: " + data.error);
+            }
+            
+            return data;
+        } catch (err) {
+            console.error('GAS Error de conexión o permisos:', err);
+            throw new Error("CORS/Fetch error: Posiblemente el script no está implementado para 'Cualquiera' o la URL es incorrecta. " + err.message);
         }
     },
 
@@ -101,8 +102,9 @@ const app = {
         app.toast('⏳ Sincronizando exámenes...');
         try {
             await this.gasRequest({ action: 'saveExams', exams: exams.list });
-            app.toast('✅ Exámenes sincronizados');
+            app.toast('✅ Exámenes sincronizados con la nube');
         } catch (err) {
+            alert('⚠️ Error crítico al sincronizar exámenes: ' + err.message + '\n\nRevisa los permisos del script web ("Cualquiera").');
             app.toast('⚠️ Error de conexión', true);
         }
     },
@@ -111,8 +113,9 @@ const app = {
         app.toast('⏳ Sincronizando estudiantes...');
         try {
             await this.gasRequest({ action: 'saveStudents', students: studentsList });
-            app.toast('✅ Estudiantes sincronizados');
+            app.toast('✅ Estudiantes sincronizados con la nube');
         } catch (err) {
+            alert('⚠️ Error crítico al sincronizar estudiantes: ' + err.message + '\n\nRevisa si tu script web de Google tiene acceso en "Cualquiera" y si la URL está bien.');
             app.toast('⚠️ Error de conexión', true);
         }
     },
@@ -470,20 +473,30 @@ const settings = {
     async testConnection() {
         if (!this.apiUrl) return alert("Ingresa una URL primero");
         const status = document.getElementById('settings-status');
-        status.innerText = "⏳ Probando conexión...";
+        status.innerText = "⏳ Probando conexión real...";
         status.style.color = "white";
         
         try {
-            // Usamos un fetch simple para verificar si el script responde
-            // mode: 'no-cors' permite que la petición salga aunque Google no tenga los headers de CORS
-            await fetch(this.apiUrl, { mode: 'no-cors' });
-            status.innerText = "✅ ¡Conexión establecida con el script!";
-            status.style.color = "var(--accent)";
-            app.toast("Conexión exitosa");
+            // Un pre-chequeo forzando cors estricto para ver si Google responde JSON (exitoso) 
+            // o HTML (CORS error de login = Permisos incorrectos)
+            const res = await fetch(this.apiUrl, { method: 'GET', headers: { 'Content-Type': 'text/plain' } });
+            if (!res.ok) throw new Error("HTTP Status " + res.status);
+            
+            const data = await res.json();
+            console.log("Respuesta de Sheet:", data);
+            
+            if (data && (data.students || data.exams || data.results)) {
+                status.innerText = "✅ ¡Conexión establecida perfectamente y datos leídos!";
+                status.style.color = "var(--accent)";
+                app.toast("Permisos correctos");
+            } else {
+                status.innerText = "⚠️ Conecta pero algo está raro con la respuesta.";
+                status.style.color = "#f59e0b";
+            }
         } catch (err) {
-            status.innerText = "❌ Error: La URL no es válida o el script no está publicado.";
+            status.innerHTML = "❌ Error detectado. Tu Script está bloqueando la app.<br><br><b>¿Cómo arreglarlo?</b><br>1. Ve a Google Sheets > Apps Script<br>2. Clic Implementar > Gestionar implementaciones, o Nueva implementación.<br>3. <b>Quién tiene acceso: Cualquiera (Everyone)</b> (NO 'Solo mi cuenta').<br>4. Re-copia la nueva URL que te den.";
             status.style.color = "#ef4444";
-            console.error("Test connection failed", err);
+            console.error("Test connection failed REAL", err);
         }
     }
 };
