@@ -99,19 +99,34 @@ const scanner = {
     /* ─── Tap to Capture ─── */
     onAppTap() {
         if (!this.isActive || this.cooldown) return;
-        if (!this.currentStudent || !this.currentExam) {
-            app.toast('⚠️ Primero enfoca el código QR para identificar al estudiante.', true);
-            return;
-        }
         
-        // Tap para calificar!
         this.cooldown = true;
-        this.setStatus(`✅ Capturando burbujas... ¡No te muevas!`, 'var(--accent)');
+        this.setStatus(`Analizando imagen... ¡No te muevas!`, 'var(--accent)');
         
-        // Timeout muy breve para dejar que la cámara capte el tap sin borrosidad
         setTimeout(() => {
+            // First, if no student is active, try an aggressive QR scan on the whole frame
+            if (!this.currentStudent || !this.currentExam) {
+                const imageData = this.ctx.getImageData(0,0, this.canvas.width, this.canvas.height);
+                const qr = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: 'attemptBoth'
+                });
+                
+                if (qr && qr.data.startsWith('ZC|')) {
+                    this.onQRDetected(qr.data);
+                }
+            }
+
+            if (!this.currentStudent || !this.currentExam) {
+                app.toast('No se encontró el QR. Acércate más e intenta de nuevo.', true);
+                this.setStatus('Acércate al QR', 'white');
+                this.cooldown = false;
+                return;
+            }
+            
+            // Si hay estudiante, procesa las burbujas
+            this.setStatus(`✅ Calificando examen de ${this.currentStudent.name}...`, 'var(--accent)');
             this.gradeSheet(this.currentStudent, this.currentExam);
-        }, 300);
+        }, 150); // Pequeño retraso para evitar fotos movidas por el choque del dedo
     },
 
     /* ─── Loop de procesamiento ─── */
@@ -130,6 +145,8 @@ const scanner = {
     processFrame() {
         if (this.cooldown) { this.drawOverlay(false); return; }
 
+        // Escaneo de QR más suave en el background para no asfixiar el CPU
+        // Solo buscaremos intensamente cuando pise onAppTap
         const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
         const qr = jsQR(imageData.data, imageData.width, imageData.height, {
             inversionAttempts: 'dontInvert'
