@@ -1,10 +1,10 @@
 /**
  * ZIPCASTELLANO SERVICE WORKER
- * Versión: 6.0 (QR-Anchored Scanner)
+ * Versión: 6.1 (Camera perf fix)
  * Permite uso offline y mejora la velocidad de carga.
  */
 
-const CACHE_NAME = 'zipcastellano-v6.0';
+const CACHE_NAME = 'zipcastellano-v6.1';
 const CACHE_URLS = [
   './',
   './index.html',

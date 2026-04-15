@@ -98,8 +98,9 @@ const scanner = {
         this.ctx    = this.canvas.getContext('2d', { willReadFrequently: true });
 
         try {
+            // Bajamos a 720p para mejorar el rendimiento. jsQR es lento a 1080p a 60fps.
             this.stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
             });
             this.video.srcObject = this.stream;
             await this.video.play();
@@ -108,6 +109,7 @@ const scanner = {
             this.currentExam = exam;
             this.lastQR = null;
             this.qrLocation = null;
+            this.lastQRCheck = 0; // Para el throttle
 
             if (!this.clickBound) {
                 this.clickBound = this.onTap.bind(this);
@@ -171,6 +173,11 @@ const scanner = {
     },
 
     detectQR() {
+        // Reducimos la frecuencia de jsQR a max ~3 veces por segundo para evitar "lag" visual de la cámara
+        const now = Date.now();
+        if (now - this.lastQRCheck < 300) return;
+        this.lastQRCheck = now;
+
         const imgData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
         const qr = jsQR(imgData.data, imgData.width, imgData.height, {
             inversionAttempts: 'dontInvert'
