@@ -12,15 +12,15 @@ const printer = {
 
         let html = '';
         for (let c = 0; c < 3; c++) {
-            html += `<div style="display:flex;flex-direction:column;">`;
+            html += `<div class="col">`;
             for (let i = 1; i <= perCol; i++) {
                 const qNum = c * perCol + i;
                 if (qNum > count) break;
                 html += `
-                <div style="display:flex;align-items:center;gap:3px;height:${rowMM}mm;font-size:${fontPx}px;">
-                    <span style="width:${numPx * 1.8}px;text-align:right;font-weight:700;font-size:${numPx}px;">${qNum}</span>
+                <div class="qrow" style="height:${rowMM}mm;">
+                    <span class="qnum" style="width:${numPx * 2.2}px; font-size:${numPx}px;">${qNum}</span>
                     ${'ABCDE'.split('').map(l =>
-                        `<div style="width:${bubblePx}px;height:${bubblePx}px;border:1.5px solid #333;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${fontPx}px;font-weight:700;flex-shrink:0;">${l}</div>`
+                        `<div class="bubble" style="width:${bubblePx}px;height:${bubblePx}px;font-size:${fontPx}px;">${l}</div>`
                     ).join('')}
                 </div>`;
             }
@@ -64,8 +64,8 @@ const printer = {
                             <span class="std-id">ID: ${student.id}</span>
                         </div>
                     </div>
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=90x90&data=ZC|${encodeURIComponent(student.id)}|${encodeURIComponent(exam.id)}"
-                         style="width:70px;height:70px;border:2px solid #333;border-radius:4px;background:white;"
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=ZC|${encodeURIComponent(student.id)}|${encodeURIComponent(exam.id)}"
+                         style="width:95px;height:95px;border:2.5px solid #333;border-radius:4px;background:white;flex-shrink:0;"
                          title="QR Identificador">
                 </div>
 

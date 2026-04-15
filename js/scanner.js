@@ -183,39 +183,52 @@ const scanner = {
         const W = canvas.width;
         const H = canvas.height;
 
-        // Recuperar zona A4 que se pinta en la pantalla (las guías rojas)
+        // Guía estricta para el bounding box de CUADROS NEGROS (1.305)
+        // Lógicos: Ancho = 207.9mm, Alto = 271.4mm -> Ratio = 1.3054
         const margin = 20;
         let pW, pH;
         if (H > W) {
             pW = W - margin * 2;
-            pH = pW * 1.414;
+            pH = pW * 1.3054;
             if (pH > H - margin * 2) {
                 pH = H - margin * 2;
-                pW = pH / 1.414;
+                pW = pH / 1.3054;
             }
         } else {
             pH = H - margin * 2;
-            pW = pH / 1.414;
+            pW = pH / 1.3054;
         }
         const pX = (W - pW) / 2;
         const pY = (H - pH) / 2;
 
-        // Dentro del papel A4, la cuadricula de burbujas inicia ~26% hacia abajo y ~10% a la izquierda
-        // Estas son proporciones basadas en printer.js:
-        // top: 22mm + header(28mm) + info(15mm) + student(25mm) = 90mm. 90/297 = 0.30 (30% de la altura total ajustado visualmente)
-        // izquierda: 22mm / 210mm = 0.104
+        // --- MAPA MILIMÉTRICO LÓGICO ---
+        // Caja de cuadros negros representa X=0, Y=0 lógicos.
+        // Dimensiones lógicas de esa caja: 207.9w x 271.4h mm.
+        const logicW = 207.9;
+        const logicH = 271.4;
+        const mmToPx = pW / logicW; // Píxeles de cámara por milímetro
+
+        // .inner empieza a los 22mm de la página -> (22 - 4) = 18mm desde el cuadro negro
+        const innerLeftLogic = 18;
+        const innerTopLogic  = 18;
         
-        const zoneX = pX + (pW * 0.12);
-        const zoneY = pY + (pH * 0.32);
-        const zoneW = pW * 0.76;
-        const zoneH = pH * 0.50; // El espacio donde caben todas
+        // Elementos antes de la grilla de burbujas (pixels lógicos de printer.js):
+        // imgHeader(96) + examInfo(52) + studentBox(134) = 282px / 3.78 = 74.6mm
+        const gridTopLogic = innerTopLogic + 74.6; 
+        
+        const zoneX = pX + (innerLeftLogic * mmToPx);
+        const zoneY = pY + (gridTopLogic * mmToPx);
+        const zoneW = pW * (171.9 / logicW); // 171.9 es ancho de inner
+        const zoneH = pH * ((logicH - gridTopLogic - 18) / logicH);
 
         const numQ   = exam.questions.length;
         const cols   = 3;
         const rows   = Math.ceil(numQ / cols);
         const colW   = zoneW / cols;
-        // La altura de cada fila se calcula con printer (maximo 10.5mm / 297mm = 0.035)
-        const rowH   = Math.min(pH * 0.035, zoneH / rows); 
+        
+        // La altura de cada fila se calcula con printer (maximo 10.5 mm)
+        const rowMMLogic = Math.min(10.5, Math.max(5.5, 173 / Math.ceil(numQ / 3)));
+        const rowH   = rowMMLogic * mmToPx; 
         const options = ['A', 'B', 'C', 'D', 'E'];
         const answers = [];
 
@@ -230,21 +243,20 @@ const scanner = {
             const qX = zoneX + col * colW;
             const qY = zoneY + row * rowH;
 
-            // En la celda, las esferitas ABCDE ocupan la derecha
-            // Dejar 18% para el número y offset
+            // En la celda, espacio reservado para numero y burbujas (ABCDE ocupa la derecha)
             const optW = (colW * 0.6) / 5;
-            const optStartX = qX + colW * 0.22;
+            const optStartX = qX + colW * 0.25;
 
             let darkestOption = 'A';
             let darkestScore  = Infinity;
 
             options.forEach((opt, oi) => {
                 const ox = optStartX + oi * optW;
-                const oy = qY + rowH * 0.1;
+                const oy = qY + rowH * 0.15;
                 const ow = optW * 0.8;
-                const oh = rowH * 0.8;
+                const oh = rowH * 0.7;
 
-                ctx.strokeRect(ox, oy, ow, oh); // feedback visual de qué procesa
+                ctx.strokeRect(ox, oy, ow, oh);
 
                 const imgData = ctx.getImageData(
                     Math.max(0, Math.floor(ox)),
@@ -362,19 +374,19 @@ const scanner = {
         const H = this.canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-        // Guía A4 estricta para alinear
+        // Guía estricta de CUADROS NEGROS (1.305)
         const margin = 20;
         let pW, pH;
         if (H > W) {
             pW = W - margin * 2;
-            pH = pW * 1.414;
+            pH = pW * 1.3054;
             if (pH > H - margin * 2) {
                 pH = H - margin * 2;
-                pW = pH / 1.414;
+                pW = pH / 1.3054;
             }
         } else {
             pH = H - margin * 2;
-            pW = pH / 1.414;
+            pW = pH / 1.3054;
         }
         
         const pX = (W - pW) / 2;
@@ -386,7 +398,7 @@ const scanner = {
         ctx.strokeStyle = this.currentStudent ? '#10b981' : '#ef4444';
         ctx.lineWidth = 4;
 
-        // Dibujar 4 esquinas del A4
+        // Dibujar 4 esquinas simulando los cuadros negros
         [[pX, pY], [pX + pW - s, pY], [pX, pY + pH - s], [pX + pW - s, pY + pH - s]]
             .forEach(([x, y]) => ctx.strokeRect(x, y, s, s));
 
@@ -397,9 +409,11 @@ const scanner = {
         if (this.currentStudent) {
             ctx.fillStyle = '#10b981';
             ctx.fillText('¡TOCA LA PANTALLA!', W / 2, pY + pH / 2);
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText('Encaja esto en los 4 cuadros NEGROS', W / 2, pY + pH / 2 + 30);
         } else {
             ctx.fillStyle = 'white';
-            ctx.fillText('Alinea la hoja completa', W / 2, 40);
+            ctx.fillText('1º Acércate al QR', W / 2, 40);
         }
     }
 };
