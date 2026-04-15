@@ -300,8 +300,49 @@ const scanner = {
      */
     mmToPixel(dx, dy, cx, cy, angle, scale) {
         return {
-            x: cx + (dx * Math.cos(angle) - dy * Math.sin(angle)) * scale,
-            y: cy + (dx * Math.sin(angle) + dy * Math.cos(angle)) * scale
+    // Constantes ajustadas
+    GRID_OFFSET: { x: -150.47, y: 26.72 },
+
+    /**
+     * Calcula una matriz de transformación de perspectiva (Homografía) dados 4 puntos origen y 4 destino.
+     */
+    getHomography(src, dst) {
+        let A = [];
+        for (let i = 0; i < 4; i++) {
+            let sx = src[i].x, sy = src[i].y;
+            let dx = dst[i].x, dy = dst[i].y;
+            A.push([sx, sy, 1, 0, 0, 0, -dx * sx, -dx * sy, dx]);
+            A.push([0, 0, 0, sx, sy, 1, -dy * sx, -dy * sy, dy]);
+        }
+
+        for (let i = 0; i < 8; i++) {
+            let pivot = i;
+            for (let j = i + 1; j < 8; j++) {
+                if (Math.abs(A[j][i]) > Math.abs(A[pivot][i])) pivot = j;
+            }
+            if (Math.abs(A[pivot][i]) < 1e-10) return null; 
+
+            let temp = A[i]; A[i] = A[pivot]; A[pivot] = temp;
+
+            let coeff = A[i][i];
+            for (let j = i; j < 9; j++) A[i][j] /= coeff;
+
+            for (let j = 0; j < 8; j++) {
+                if (i !== j) {
+                    let factor = A[j][i];
+                    for (let k = i; k < 9; k++) A[j][k] -= factor * A[i][k];
+                }
+            }
+        }
+
+        const h = [ A[0][8], A[1][8], A[2][8], A[3][8], A[4][8], A[5][8], A[6][8], A[7][8], 1 ];
+
+        return (x, y) => {
+            let w = h[6] * x + h[7] * y + h[8];
+            return {
+                x: (h[0] * x + h[1] * y + h[2]) / w,
+                y: (h[3] * x + h[4] * y + h[5]) / w
+            };
         };
     },
 
@@ -347,40 +388,45 @@ const scanner = {
         this.showResult(student, exam, result);
     },
 
-    /**
-     * Analiza todas las burbujas usando coordenadas ancladas al QR.
-     * Devuelve { answers: string[], bubbleData: object[] }
-     */
     analyzeBubbles(ctx, canvas, exam, qrLoc, version) {
-        // ── Geometría del QR ──
-        const tl = qrLoc.topLeftCorner;
-        const tr = qrLoc.topRightCorner;
-        const bl = qrLoc.bottomLeftCorner;
-        const br = qrLoc.bottomRightCorner;
-
-        // Centro del QR (punto medio de la diagonal)
-        const qrCX = (tl.x + br.x) / 2;
-        const qrCY = (tl.y + br.y) / 2;
-
-        // Tamaño del QR en px de cámara (promedio de bordes sup e izq)
-        const topEdge  = Math.hypot(tr.x - tl.x, tr.y - tl.y);
-        const leftEdge = Math.hypot(bl.x - tl.x, bl.y - tl.y);
-        const qrSizePx = (topEdge + leftEdge) / 2;
-
-        // Ángulo de rotación del papel
-        const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x);
-
-        // ── Escala (px por mm) ──
-        // El área de datos del QR depende de la versión
+        // ── Geometría y Homografía ──
+        // Calculamos el tamaño físico real del QR asumiendo margin=1 en el generador de la API
         const qrModules = 4 * version + 17;
-        // La imagen renderizada del QR tiene (qrModules + 8) módulos
-        // (zona silenciosa de 4 módulos por lado)
-        // El content area es 32.8mm físico
-        const dataAreaMM = qrModules * this.QR_CONTENT_MM / (qrModules + 8);
-        const pxPerMm = qrSizePx / dataAreaMM;
+        const marginModules = 1; 
+        const totalImageModules = qrModules + (marginModules * 2);
 
-        console.log(`[Scanner] v${version}: ${qrModules}mod, data=${dataAreaMM.toFixed(1)}mm, ` +
-                     `scale=${pxPerMm.toFixed(2)}px/mm, angle=${(angle * 180 / Math.PI).toFixed(1)}°`);
+        // 32.81mm es el area content-box de la imagen de 130px de CSS (sin los bordes de 3px)
+        const qrImagePhysicalSizeMM = 32.81; 
+        // El size físico de la zona dedatos entre los outer boundaries del finder pattern
+        const dataAreaMM = (qrModules / totalImageModules) * qrImagePhysicalSizeMM;
+
+        console.log(`[Scanner] v${version}: ${qrModules}mod, dataArea=${dataAreaMM.toFixed(2)}mm`);
+
+        // Coordenadas locales de los 4 extremos del QR en milímetros (Sistema local centrado en 0,0)
+        const d = dataAreaMM / 2;
+        const src = [
+            { x: -d, y: -d }, // topLeft
+            { x:  d, y: -d }, // topRight
+            { x:  d, y:  d }, // bottomRight
+            { x: -d, y:  d }  // bottomLeft
+        ];
+
+        // Coordenadas detectadas en la foto por jsQR
+        const dst = [
+            qrLoc.topLeftCorner,
+            qrLoc.topRightCorner,
+            qrLoc.bottomRightCorner,
+            qrLoc.bottomLeftCorner
+        ];
+
+        const transform = this.getHomography(src, dst);
+        if (!transform) {
+            app.toast('❌ Error matemático calculando perspectiva', true);
+            return { answers: [], bubbleData: [] };
+        }
+
+        // Estimación aprox de píxeles por mm solo para el radio de muestreo de las burbujas
+        const pxPerMmAvg = Math.hypot(dst[0].x - dst[1].x, dst[0].y - dst[1].y) / dataAreaMM;
 
         // ── Análisis de burbujas ──
         const numQ = exam.questions.length;
@@ -390,7 +436,7 @@ const scanner = {
         const bubbleData = [];
 
         // Radio de muestreo un poco mayor que el radio físico para tolerancia
-        const sampleR = L.bubbleRadius * 1.4 * pxPerMm;
+        const sampleR = L.bubbleRadius * 1.3 * pxPerMmAvg;
 
         for (let q = 0; q < numQ; q++) {
             const brights = [];
@@ -398,7 +444,8 @@ const scanner = {
 
             for (let o = 0; o < 5; o++) {
                 const mm = this.bubbleMM(q, o, L);
-                const px = this.mmToPixel(mm.x, mm.y, qrCX, qrCY, angle, pxPerMm);
+                // Mapear coordenadar física (relativa al centro del QR) a píxel 2D usando Perspectiva
+                const px = transform(mm.x, mm.y);
                 const brightness = this.sampleBrightness(
                     ctx, px.x, px.y, sampleR, canvas.width, canvas.height
                 );
