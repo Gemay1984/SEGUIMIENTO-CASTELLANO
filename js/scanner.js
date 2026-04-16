@@ -316,6 +316,11 @@ const scanner = {
      */
     mmToPixel(dx, dy, cx, cy, angle, scale) {
         return {
+            x: cx + (dx * Math.cos(angle) - dy * Math.sin(angle)) * scale,
+            y: cy + (dx * Math.sin(angle) + dy * Math.cos(angle)) * scale
+        };
+    },
+
     // Constantes ajustadas
     GRID_OFFSET: { x: -150.47, y: 26.72 },
 

@@ -1,10 +1,10 @@
 /**
  * ZIPCASTELLANO SERVICE WORKER
- * Versión: 6.4 (Empty exams check)
+ * Versión: 6.5 (Syntax error hotfix)
  * Permite uso offline y mejora la velocidad de carga.
  */
 
-const CACHE_NAME = 'zipcastellano-v6.4';
+const CACHE_NAME = 'zipcastellano-v6.5';
 const CACHE_URLS = [
   './',
   './index.html',
