@@ -91,8 +91,9 @@ const scanner = {
 
     async start() {
         const exam = this.getActiveExam();
-        if (!exam) { alert('Selecciona un examen activo antes de escanear.'); return; }
-
+        // Ya no impedimos abrir la cámara si no hay examen seleccionado en el menú,
+        // porque el código QR contiene el ID del examen y se auto-seleccionará al detectarlo.
+        
         this.video  = document.getElementById('video');
         this.canvas = document.getElementById('overlay');
         this.ctx    = this.canvas.getContext('2d', { willReadFrequently: true });
@@ -106,7 +107,7 @@ const scanner = {
             await this.video.play();
             this.isActive = true;
             this.currentStudent = null;
-            this.currentExam = exam;
+            this.currentExam = exam; 
             this.lastQR = null;
             this.qrLocation = null;
             this.lastQRCheck = 0; // Para el throttle

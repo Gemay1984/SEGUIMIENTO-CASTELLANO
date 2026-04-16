@@ -1,10 +1,10 @@
 /**
  * ZIPCASTELLANO SERVICE WORKER
- * Versión: 6.2 (Homography math)
+ * Versión: 6.3 (Camera fix)
  * Permite uso offline y mejora la velocidad de carga.
  */
 
-const CACHE_NAME = 'zipcastellano-v6.2';
+const CACHE_NAME = 'zipcastellano-v6.3';
 const CACHE_URLS = [
   './',
   './index.html',
