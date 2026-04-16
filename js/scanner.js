@@ -67,10 +67,16 @@ const scanner = {
         const sel = document.getElementById('scan-exam-select');
         if (!sel) return;
         const cur = sel.value;
-        sel.innerHTML = '<option value="">Selecciona un examen...</option>' +
-            exams.list.map(e =>
-                `<option value="${e.id}" ${e.id === cur ? 'selected' : ''}>${e.name} · ${e.grade}</option>`
-            ).join('');
+        if (exams.list.length === 0) {
+            sel.innerHTML = '<option value="">⚠️ No hay exámenes creados</option>';
+            sel.disabled = true;
+        } else {
+            sel.innerHTML = '<option value="">(Opcional auto-detect) Selecciona...</option>' +
+                exams.list.map(e =>
+                    `<option value="${e.id}" ${e.id === cur ? 'selected' : ''}>${e.name} · ${e.grade}</option>`
+                ).join('');
+            sel.disabled = false;
+        }
     },
 
     updateExamInfo() {
@@ -90,6 +96,11 @@ const scanner = {
      * ═══════════════════════════════════════════════════════════ */
 
     async start() {
+        if (exams.list.length === 0) {
+            alert('🛑 ¡ALT0! No tienes ningún examen guardado en la aplicación.\n\nVe al MENÚ (arriba a la derecha) ➡️ EXÁMENES ➡️ Crea un "Nuevo Examen" marcando cuáles son las respuestas correctas. \n\nSi no le das las respuestas correctas a la app, ¡no puede calificar nada!');
+            return;
+        }
+
         const exam = this.getActiveExam();
         // Ya no impedimos abrir la cámara si no hay examen seleccionado en el menú,
         // porque el código QR contiene el ID del examen y se auto-seleccionará al detectarlo.
@@ -144,8 +155,12 @@ const scanner = {
         e.preventDefault();
         if (!this.isActive || this.cooldown) return;
 
-        if (!this.currentStudent || !this.currentExam) {
+        if (!this.currentStudent) {
             app.toast('⚠️ Enfoca el QR primero para identificar al estudiante.', true);
+            return;
+        }
+        if (!this.currentExam) {
+            app.toast('⚠️ Error: El examen de esta hoja no está guardado en tu memoria. ¡Créalo en la pestaña Exámenes!', true);
             return;
         }
 
