@@ -216,7 +216,10 @@ const printer = {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                /* Altura aproximada ~15mm */
+                /* ALTURA FIJA: el scanner.js depende de este valor exacto (17mm) */
+                min-height: 17mm;
+                max-height: 17mm;
+                overflow: hidden;
             }
             .std-name { font-size: 13px; font-weight: 700; }
             .std-info  { font-size: 10px; display: flex; gap: 14px; align-items: center; }

@@ -141,6 +141,28 @@
                     <button class="btn" id="stop-scan" onclick="scanner.stop()">⏹ Detener</button>
                 </div>
                 <div id="scan-status" style="color:var(--accent); font-size:0.9rem; text-align:center;">Selecciona un examen y activa la cámara.</div>
+
+                <!-- Calibración fina de posición vertical de burbujas -->
+                <details style="width:100%; max-width:600px; margin-top:8px;">
+                    <summary style="cursor:pointer; color:var(--text-muted); font-size:0.82rem; user-select:none;">🔧 Calibración de posición de burbujas</summary>
+                    <div style="background:rgba(255,255,255,0.05); border-radius:10px; padding:14px 18px; margin-top:8px;">
+                        <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">
+                            Si los puntitos <b style="color:#63e6ff">cyan</b> en la cámara no coinciden con las burbujas del papel, ajusta este valor.<br>
+                            <b>+</b> baja la grilla · <b>−</b> la sube
+                        </p>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <span style="font-size:0.75rem; color:var(--text-muted);">−15mm</span>
+                            <input type="range" id="calibrate-dy" min="-15" max="15" step="0.5" value="0"
+                                style="flex:1; accent-color:var(--accent);">
+                            <span style="font-size:0.75rem; color:var(--text-muted);">+15mm</span>
+                            <span id="calibrate-dy-label" style="min-width:50px; text-align:right; font-weight:700; color:var(--accent); font-size:0.9rem;">+0.0 mm</span>
+                        </div>
+                        <button class="btn" onclick="scanner.GRID_DY_ADJUST=0; document.getElementById('calibrate-dy').value=0; document.getElementById('calibrate-dy-label').textContent='+0.0 mm'; localStorage.setItem('zc_dy_adjust','0');"
+                            style="margin-top:8px; font-size:0.78rem; padding:4px 12px; background:rgba(255,255,255,0.1);">
+                            ↺ Restablecer
+                        </button>
+                    </div>
+                </details>
             </div>
 
             <!-- Result Panel (hidden until grading complete) -->
@@ -282,14 +304,14 @@
         }
     </style>
 
-    <script src="js/app.js?v=7.1"></script>
-    <script src="js/scanner.js?v=7.1"></script>
-    <script src="js/printer.js?v=7.1"></script>
+    <script src="js/app.js?v=7.2"></script>
+    <script src="js/scanner.js?v=7.2"></script>
+    <script src="js/printer.js?v=7.2"></script>
     <script>
         lucide.createIcons();
         // Registrar Service Worker para PWA
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js?v=7.1')
+            navigator.serviceWorker.register('./sw.js?v=7.2')
                 .then(reg => console.log('SW registrado', reg.scope))
                 .catch(err => console.log('SW error', err));
         }

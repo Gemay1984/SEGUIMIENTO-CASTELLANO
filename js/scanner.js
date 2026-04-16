@@ -17,24 +17,22 @@
  *    - margin-bottom: 6px = 1.59mm
  *    → Total header clearance = 28 + 1.59 + 1.59 = ~31.2mm
  *
- *  Student-box:
- *    - padding: 6px top+bottom = 3.17mm total
- *    - border: 2px = 0.53mm × 2
- *    - .std-name: 13px = 3.44mm
- *    - .std-info: 10px = 2.65mm
- *    - gap entre: ~2mm
- *    → height total ≈ 0.53+3.17+3.44+2+2.65+0.53 = ~12.3mm
+ *  Student-box (con min-height: 17mm fijo en printer.js):
+ *    - height fija: 17mm
  *    - margin-bottom: 6px = 1.59mm
- *    → Student-box clearance ≈ 13.9mm
+ *    → Student-box clearance = 17 + 1.59 = ~18.6mm
  *
- *  GRID_OFFSET (desde CENTRO del QR al TOP-LEFT de la grilla de burbujas):
- *    dx = left-of-inner - center-QR-x = 0 - 14 = -14mm
- *         ← las burbujas empiezan en el borde izquierdo del inner, mismo que el QR
+ *  Espacio entre header y grilla (gap + padding):
+ *    - gap CSS 6px = 1.59mm (ya en header clearance)
+ *
+ *  GRID_OFFSET (desde CENTRO del QR al TOP de la primera fila de burbujas):
+ *    dx = 0 - 14 = -14mm (burbujas arrancan en borde izquierdo del inner)
  *    dy = (header clearance + student-box clearance) - center-QR-y
- *       = (31.2 + 13.9) - 14
- *       = 31.1mm
+ *       = (31.2 + 18.6) - 14
+ *       = 35.8mm  (base; más margen real del .inner top: ~7.7mm)
+ *       ≈ 43.5mm  (valor empírico calibrado para 96dpi y papel carta)
  *
- * Nota: ajustar dy con GRID_DY_ADJUST si la grilla aparece desplazada.
+ * Nota: usar GRID_DY_ADJUST (slider en la UI) para calibración fina.
  * ──────────────────────────────────────────────────────────
  */
 
@@ -75,9 +73,12 @@ const scanner = {
 
     QR_CONTENT_MM: 28,
 
-    GRID_OFFSET: { x: -14, y: 31.1 },
+    // GRID_OFFSET: offset en mm desde el CENTRO del QR hasta el TOP-LEFT de la grilla.
+    // y=43.5 corregido: header(31.2) + student-box(18.6) - centro_QR(14) + margen_inner(7.7)
+    GRID_OFFSET: { x: -14, y: 43.5 },
 
-    // Ajuste fino de calibración (mm). Modificar aquí para calibrar sin tocar la geometría.
+    // Ajuste fino de calibración (mm). Se lee del slider #calibrate-dy en la UI.
+    // Positivo = baja la grilla, Negativo = sube la grilla.
     GRID_DY_ADJUST: 0,
 
     /* ═══════════════════════════════════════════════════════════
@@ -88,6 +89,24 @@ const scanner = {
         this.populateExamSelect();
         document.getElementById('scan-exam-select')
             ?.addEventListener('change', () => this.updateExamInfo());
+
+        // Leer ajuste de calibración desde el slider de la UI
+        const slider = document.getElementById('calibrate-dy');
+        if (slider) {
+            // Cargar valor guardado
+            const saved = parseFloat(localStorage.getItem('zc_dy_adjust') || '0');
+            slider.value = saved;
+            this.GRID_DY_ADJUST = saved;
+            const label = document.getElementById('calibrate-dy-label');
+            if (label) label.textContent = (saved >= 0 ? '+' : '') + saved.toFixed(1) + ' mm';
+
+            slider.addEventListener('input', () => {
+                const v = parseFloat(slider.value);
+                this.GRID_DY_ADJUST = v;
+                localStorage.setItem('zc_dy_adjust', v);
+                if (label) label.textContent = (v >= 0 ? '+' : '') + v.toFixed(1) + ' mm';
+            });
+        }
     },
 
     populateExamSelect() {
