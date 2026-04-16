@@ -88,9 +88,9 @@ const scanner = {
     QR_SHEET_MM:   { x: 36, y: 36    },  // centro QR = inner(22)+14
     GRID_SHEET_MM: { x: 22, y: 71.77 },  // inner_top(22)+header(31.18)+student-box(18.59)
 
-    // Umbral de detección: la burbuja debe estar claramente rellena
-    BUBBLE_DARK_THRESH: 160,   // brillo máximo para considerar una burbuja marcada (0-255)
-    BUBBLE_MIN_CONTRAST: 0.20, // debe ser ≥20% más oscura que la mediana
+    // Umbral de detección: modificado para permitir marcas con "X" en bolígrafo
+    BUBBLE_DARK_THRESH: 210,   // brillo máximo para considerar una burbuja marcada (0-255)
+    BUBBLE_MIN_CONTRAST: 0.08, // debe ser ≥8% más oscura que la mediana
 
     // Estado de esquinas detectadas (se actualiza en drawOverlay)
     lastCorners: null,
@@ -563,7 +563,10 @@ const scanner = {
         const numQ  = exam.questions.length;
         const L     = this.getLayout(numQ);
         const OPTS  = ['A','B','C','D','E'];
-        const sampleR = L.bubbleRadius * 1.3 * pxPerMm;
+        // Radio de muestreo: 70% del radio de la burbuja.
+        // Esto es CLAVE para evitar incluir el grueso borde negro de la burbuja impresa
+        // en el promedio, y enfocarse solo en el centro donde está la marca o la "X".
+        const sampleR = L.bubbleRadius * 0.7 * pxPerMm;
         const answers    = [];
         const bubbleData = [];
 
