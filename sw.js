@@ -1,10 +1,10 @@
 /**
  * ZIPCASTELLANO SERVICE WORKER
- * Versión: 6.5 (Syntax error hotfix)
+ * Versión: 6.6 (Scanner v5 clean rewrite)
  * Permite uso offline y mejora la velocidad de carga.
  */
 
-const CACHE_NAME = 'zipcastellano-v6.5';
+const CACHE_NAME = 'zipcastellano-v6.6';
 const CACHE_URLS = [
   './',
   './index.html',
