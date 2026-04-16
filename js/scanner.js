@@ -136,8 +136,8 @@ const scanner = {
             this.stream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     facingMode: { ideal: 'environment' },
-                    width:  { ideal: 1920 },
-                    height: { ideal: 1080 }
+                    width:  { ideal: 1280 }, // Bajamos a 720p para evaluación más rápida por jsQR sin perder resolución de burbujas
+                    height: { ideal: 720 }
                 }
             });
             this.video.srcObject = this.stream;
@@ -229,7 +229,8 @@ const scanner = {
 
     detectQR() {
         const now = Date.now();
-        if (now - this.lastQRCheck < 250) return;  // máx ~4 veces/seg
+        // Aumentamos los scans a ~8 veces por segundo para que sea instantáneo.
+        if (now - this.lastQRCheck < 120) return; 
         this.lastQRCheck = now;
 
         const imgData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
