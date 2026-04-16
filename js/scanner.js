@@ -85,8 +85,10 @@ const scanner = {
         bl: { x: 11,    y: 268.4 },
         br: { x: 204.9, y: 268.4 }
     },
-    QR_SHEET_MM:   { x: 36, y: 36    },  // centro QR = inner(22)+14
-    GRID_SHEET_MM: { x: 22, y: 71.77 },  // inner_top(22)+header(31.18)+student-box(18.59)
+    QR_SHEET_MM:   { x: 36, y: 36    },  // centro QR
+    // GRID_SHEET_MM.x ajustado de 22 a 29.5 (+7.5mm) para mover la mira hacia la derecha,
+    // sacándola de encima de los números y poniéndola exactamente sobre las burbujas ABC.
+    GRID_SHEET_MM: { x: 29.5, y: 71.77 },
 
     // Umbral de detección: modificado para permitir marcas con "X" en bolígrafo
     BUBBLE_DARK_THRESH: 210,   // brillo máximo para considerar una burbuja marcada (0-255)
@@ -269,8 +271,8 @@ const scanner = {
                         this.cornerFrames = 0;
                         if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
                         this.setStatus(`✨ Auto-calificando a ${this.currentStudent.name}…`, '#22c55e');
-                        // Mini retraso visual antes de calificar la imagen congelada
-                        setTimeout(() => this.gradeSheet(), 100);
+                        // Retraso para que el usuario alcance a ver la captura visual 
+                        setTimeout(() => this.gradeSheet(), 300);
                     }
                 } else {
                     this.cornerFrames = 0;
