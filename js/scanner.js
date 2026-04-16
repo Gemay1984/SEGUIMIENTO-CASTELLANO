@@ -94,6 +94,7 @@ const scanner = {
 
     // Estado de esquinas detectadas (se actualiza en drawOverlay)
     lastCorners: null,
+    cornerFrames: 0, // contador para auto-captura estable
 
     /* ═══════════════════════════════════════════════════════════
      * INICIALIZACIÓN
@@ -254,8 +255,30 @@ const scanner = {
             this.canvas.height = this.video.videoHeight;
             this.ctx.drawImage(this.video, 0, 0);
 
-            if (!this.cooldown) this.detectQR();
-            this.drawOverlay();
+            if (!this.cooldown) {
+                this.detectQR();
+                this.drawOverlay();
+
+                // ── Auto-Captura ZipGrade ──
+                // Si la homografía detectó 4 esquinas y tenemos los datos listos...
+                if (this.lastCorners && this.currentStudent && this.currentExam) {
+                    this.cornerFrames++;
+                    // Exigimos 3 frames consecutivos (~50ms) para evitar ruido/foto movida
+                    if (this.cornerFrames >= 3) {
+                        this.cooldown = true;
+                        this.cornerFrames = 0;
+                        if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
+                        this.setStatus(`✨ Auto-calificando a ${this.currentStudent.name}…`, '#22c55e');
+                        // Mini retraso visual antes de calificar la imagen congelada
+                        setTimeout(() => this.gradeSheet(), 100);
+                    }
+                } else {
+                    this.cornerFrames = 0;
+                }
+            } else {
+                // Sigue dibujando el overlay sin intentar auto-calificar ni detectar QR de nuevo
+                this.drawOverlay();
+            }
         }
         requestAnimationFrame(() => this.loop());
     },
