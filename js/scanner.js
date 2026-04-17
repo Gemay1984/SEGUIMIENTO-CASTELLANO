@@ -78,29 +78,12 @@ const scanner = {
      *   Cambiar si el overlay de burbujas no coincide con las burbujas reales.
      * ═══════════════════════════════════════════════════════════ */
 
-    QR_CONTENT_MM: 28,
-
-    // GRID_OFFSET: usado como fallback (solo QR). y=43.5 empírico.
-    GRID_OFFSET: { x: -14, y: 43.5 },
-    GRID_DY_ADJUST: 0,
-
-    // ── Coordenadas absolutas en la hoja carta (215.9×279.4mm) ──
-    // Corner marks (.corner 14×14mm): top/left/bottom/right=4mm → centro=4+7=11mm
-    CORNER_MM: {
-        tl: { x: 11,    y: 11    },
-        tr: { x: 204.9, y: 11    },
-        bl: { x: 11,    y: 268.4 },
-        br: { x: 204.9, y: 268.4 }
-    },
-    QR_SHEET_MM:   { x: 36, y: 36    },  // centro QR
+    QR_CONTENT_MM: 32,
+    QR_SHEET_MM: { x: 38, y: 38 }, // Centro del QR (22mm offset + 16mm radio QR)
 
     // Umbral de detección: ajustados para robustez de la marca
     BUBBLE_DARK_THRESH: 185,
     BUBBLE_MIN_CONTRAST: 0.12,
-
-    // Estado de esquinas detectadas (se actualiza en drawOverlay)
-    lastCorners: null,
-    cornerFrames: 0,
 
     // Cache de posiciones medidas desde el DOM (Opción C)
     _measuredPositions: null,
@@ -300,7 +283,6 @@ const scanner = {
                 // ── Auto-Captura Inteligente ──
                 if (this.autoCaptureEnabled &&
                     this.currentStudent && this.currentExam &&
-                    this.lastCorners &&
                     this.consecutiveStableFrames >= this.STABLE_FRAMES_REQUIRED) {
 
                     this.cooldown = true;
@@ -512,94 +494,6 @@ const scanner = {
      * HOMOGRAFÍA — 4 marcadores de esquina
      * ═══════════════════════════════════════════════════════════ */
 
-    /**
-     * Busca los 4 cuadros negros en las esquinas de la imagen.
-     * Usa la posición del QR para predecir dónde deberían estar y busca
-     * el centroide de píxeles oscuros en esa zona.
-     * Devuelve {tl,tr,bl,br} con coordenadas de píxel, o null si falla.
-     */
-    detectAndRefineCorners(ctx, canvas, qrCX, qrCY, angle, pxPerMm) {
-        const found = {};
-        const searchR = Math.round(20 * pxPerMm); // buscar en radio de 20mm
-        for (const key of ['tl', 'tr', 'bl', 'br']) {
-            const cm = this.CORNER_MM[key];
-            const dx = cm.x - this.QR_SHEET_MM.x;
-            const dy = cm.y - this.QR_SHEET_MM.y;
-            const pred = this.mmToPixel(dx, dy, qrCX, qrCY, angle, pxPerMm);
-            const c = this.findDarkCentroid(ctx, pred.x, pred.y, searchR, canvas.width, canvas.height);
-            if (!c) return null;
-            found[key] = c;
-        }
-        return found;
-    },
-
-    /** Centroide de píxeles oscuros en un radio alrededor de (cx,cy). */
-    findDarkCentroid(ctx, cx, cy, radius, maxW, maxH) {
-        const r  = Math.ceil(radius);
-        const x0 = Math.max(0, Math.round(cx) - r);
-        const y0 = Math.max(0, Math.round(cy) - r);
-        const x1 = Math.min(maxW, Math.round(cx) + r);
-        const y1 = Math.min(maxH, Math.round(cy) + r);
-        const w  = x1 - x0, h = y1 - y0;
-        if (w <= 0 || h <= 0) return null;
-        const data  = ctx.getImageData(x0, y0, w, h).data;
-        let sumX = 0, sumY = 0, count = 0;
-        for (let py = 0; py < h; py++) {
-            for (let px = 0; px < w; px++) {
-                const i  = (py * w + px) * 4;
-                const br = data[i]*0.299 + data[i+1]*0.587 + data[i+2]*0.114;
-                if (br < 70) { sumX += x0+px; sumY += y0+py; count++; }
-            }
-        }
-        if (count < 40) return null; // cuadro no encontrado
-        return { x: sumX/count, y: sumY/count };
-    },
-
-    /** Calcula homografía 3×3 usando los 4 pares de puntos (DLT). */
-    computeHomographyFromCorners(corners) {
-        const src = ['tl','tr','bl','br'].map(k => this.CORNER_MM[k]);
-        const dst = ['tl','tr','bl','br'].map(k => corners[k]);
-        return this.computeHomography(src, dst);
-    },
-
-    computeHomography(srcPts, dstPts) {
-        const A = [];
-        for (let i = 0; i < 4; i++) {
-            const X = srcPts[i].x, Y = srcPts[i].y;
-            const x = dstPts[i].x, y = dstPts[i].y;
-            A.push([-X,-Y,-1, 0, 0, 0, x*X, x*Y, x]);
-            A.push([ 0, 0, 0,-X,-Y,-1, y*X, y*Y, y]);
-        }
-        const A8 = A.map(row => row.slice(0,8));
-        const b  = A.map(row => -row[8]);
-        const h  = this._solveLinear(A8, b);
-        return [...h, 1];
-    },
-
-    applyHomography(H, X, Y) {
-        const w = H[6]*X + H[7]*Y + H[8];
-        return { x: (H[0]*X + H[1]*Y + H[2])/w, y: (H[3]*X + H[4]*Y + H[5])/w };
-    },
-
-    _solveLinear(A, b) {
-        const n = A.length;
-        const M = A.map((row, i) => [...row, b[i]]);
-        for (let col = 0; col < n; col++) {
-            let maxR = col;
-            for (let row = col+1; row < n; row++)
-                if (Math.abs(M[row][col]) > Math.abs(M[maxR][col])) maxR = row;
-            [M[col], M[maxR]] = [M[maxR], M[col]];
-            const piv = M[col][col];
-            if (Math.abs(piv) < 1e-12) continue;
-            for (let row = 0; row < n; row++) {
-                if (row === col) continue;
-                const f = M[row][col]/piv;
-                for (let j = col; j <= n; j++) M[row][j] -= f*M[col][j];
-            }
-        }
-        return M.map((row, i) => row[n]/row[i]);
-    },
-
     /* ═══════════════════════════════════════════════════════════
      * CALIFICACIÓN
      * ═══════════════════════════════════════════════════════════ */
@@ -656,40 +550,30 @@ const scanner = {
         const angle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
         const pxPerMm = qrSizePx / this.QR_CONTENT_MM;
 
-        // ── Intentar homografía con marcadores de esquina ──
-        let bubblePosFn;
-        const corners = this.detectAndRefineCorners(ctx, canvas, qrCX, qrCY, angle, pxPerMm);
-        if (corners) {
-            const H = this.computeHomographyFromCorners(corners);
-            this._lastMethod = 'homografía ✅';
-            bubblePosFn = (q, o, L) => {
-                const s = this.bubbleSheetMM(q, o, L);
-                return this.applyHomography(H, s.x, s.y);
-            };
-            console.log('[Scanner] Usando homografía con 4 esquinas');
-        } else {
-            this._lastMethod = 'QR offset';
-            bubblePosFn = (q, o, L) => {
-                const mm = this.bubbleMM(q, o, L);
-                return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, angle, pxPerMm);
-            };
-            console.warn('[Scanner] Esquinas no detectadas, usando offset QR');
-        }
+        this._lastMethod = 'QR offset + DOM';
+        const bubblePosFn = (q, o, L) => {
+            const mm = this.bubbleMM(q, o, L);
+            return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, angle, pxPerMm);
+        };
 
         const numQ  = exam.questions.length;
         const L     = this.getLayout(numQ);
         const OPTS  = ['A','B','C','D','E'];
 
+        // Obtener anchor y posiciones (solo para log y verificación, getMeasuredPositions fue actualizado pero aquí usamos bubblePosFn)
+        const measured = this.getMeasuredPositions(numQ);
+        const anchor = measured.anchor || {x:0,y:0};
+        
         // Log de verificación: posiciones medidas desde el DOM
         const posA1 = this.bubbleSheetMM(0, 0, L);
         const posE1 = this.bubbleSheetMM(0, 4, L);
-        const posA11 = numQ > 10 ? this.bubbleSheetMM(10, 0, L) : null;
         console.table([
-            { burbuja: 'A1',  xMM: posA1.x.toFixed(1),  yMM: posA1.y.toFixed(1) },
-            { burbuja: 'E1',  xMM: posE1.x.toFixed(1),  yMM: posE1.y.toFixed(1) },
-            ...(posA11 ? [{ burbuja: 'A11', xMM: posA11.x.toFixed(1), yMM: posA11.y.toFixed(1) }] : []),
+            { punto: 'QR Center', xMM: this.QR_SHEET_MM.x.toFixed(1), yMM: this.QR_SHEET_MM.y.toFixed(1) },
+            { punto: 'A1',  xMM: posA1.x.toFixed(1),  yMM: posA1.y.toFixed(1) },
+            { punto: 'E1',  xMM: posE1.x.toFixed(1),  yMM: posE1.y.toFixed(1) },
+            { punto: 'Anchor', xMM: anchor.x.toFixed(1), yMM: anchor.y.toFixed(1) },
         ]);
-        console.log('[Scanner] Usando posiciones DOM medidas ✅');
+        console.log('[Scanner] Detección anclada al QR usando proyecciones DOM ✅');
 
         // Radio de muestreo: evitar incluir el grueso borde negro de la burbuja
         const sampleR = L.bubbleRadius * 0.55 * pxPerMm;
@@ -1048,28 +932,15 @@ const scanner = {
             const pxPerMm = ((topEdge + lefEdge) / 2) / this.QR_CONTENT_MM;
             const angle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
 
-            // Detectar esquinas para el overlay
-            const detCorners = this.detectAndRefineCorners(ctx, this.canvas, qrCX, qrCY, angle, pxPerMm);
-            this.lastCorners = detCorners;
-
+            // Dibujar puntos de burbujas sin esquinas, solo con offset
             const numQ = this.currentExam.questions.length;
             const L    = this.getLayout(numQ);
             const r    = Math.max(3, L.bubbleRadius * pxPerMm * 0.7);
 
-            // Dibujar puntos de burbujas
-            let overlayPosFn;
-            if (detCorners) {
-                const H_hom = this.computeHomographyFromCorners(detCorners);
-                overlayPosFn = (q, o, L_) => {
-                    const s = this.bubbleSheetMM(q, o, L_);
-                    return this.applyHomography(H_hom, s.x, s.y);
-                };
-            } else {
-                overlayPosFn = (q, o, L_) => {
-                    const mm = this.bubbleMM(q, o, L_);
-                    return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, angle, pxPerMm);
-                };
-            }
+            const overlayPosFn = (q, o, L_) => {
+                const mm = this.bubbleMM(q, o, L_);
+                return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, angle, pxPerMm);
+            };
 
             // Color de burbujas: transición suave con estabilidad
             const bubbleAlpha = 0.5 + progress * 0.4;
@@ -1086,17 +957,6 @@ const scanner = {
                     ctx.lineWidth   = isStable ? 2 : 1.5;
                     ctx.stroke();
                 }
-            }
-
-            // Dibujar marcadores de esquina detectados
-            if (detCorners) {
-                Object.values(detCorners).forEach(c => {
-                    ctx.beginPath();
-                    ctx.arc(c.x, c.y, 10, 0, Math.PI * 2);
-                    ctx.strokeStyle = '#facc15';
-                    ctx.lineWidth   = 3;
-                    ctx.stroke();
-                });
             }
 
             // ── Barra de progreso de estabilidad (superior) ──

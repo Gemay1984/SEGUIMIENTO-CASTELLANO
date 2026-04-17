@@ -1,16 +1,12 @@
 /**
- * ZIPCASTELLANO PRINTER v2
+ * ZIPCASTELLANO PRINTER v3 — Hoja Rediseñada
  *
- * Layout de la hoja rediseñado para máxima compatibilidad con el escáner:
- * - QR en esquina superior IZQUIERDA del .inner (posición fija y predecible)
- * - QR exactamente 28mm × 28mm (sin margen, sin borde)
- * - Header de altura fija 28mm + 6px gap = ~28.5mm total
- * - Student-box compacto (~17mm)
- * - Grilla de burbujas empieza en Y ≈ 28.5 + 6 + 17 + 6 = ~57.5mm desde top del .inner
- *
- * Esto permite al scanner.js calcular:
- *   GRID_OFFSET.x = +14mm (centro QR 14mm desde left → burbujas empiezan en x≈14mm → dx≈0)
- *   GRID_OFFSET.y = +57.5mm (distancia del centro del QR a la primera fila de burbujas)
+ * Cambios clave vs v2:
+ * - SIN marcadores de esquina (se recortaban al imprimir)
+ * - QR más grande: 32mm × 32mm (mejor detección desde cámara)
+ * - Marca de anclaje (■ 8mm) en esquina inferior-derecha de la grilla
+ * - Borde negro grueso alrededor de la grilla de burbujas
+ * - El scanner solo necesita: QR (posición/escala/rotación) + posiciones DOM medidas
  */
 const printer = {
 
@@ -42,26 +38,16 @@ const printer = {
     },
 
     buildSheetHTML(exam, student) {
-        // QR URL con margin=0 para que jsQR detecte exactamente el área de datos (28mm)
-        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=0&data=ZC|${encodeURIComponent(student.id)}|${encodeURIComponent(exam.id)}`;
+        // QR URL con margin=0, tamaño 32mm para mejor detección
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=0&data=ZC|${encodeURIComponent(student.id)}|${encodeURIComponent(exam.id)}`;
 
         return `
         <div class="sheet">
-            <!-- Marcadores Fiduciales (14mm × 14mm, en las 4 esquinas) -->
-            <div class="corner tl"></div>
-            <div class="corner tr"></div>
-            <div class="corner bl"></div>
-            <div class="corner br"></div>
-
             <div class="inner">
 
-                <!-- ══ HEADER ROW ══
-                     El QR ocupa la columna izquierda (28mm fijos).
-                     Su esquina TL coincide con el vértice TL del .inner.
-                     El escáner calculará el offset a las burbujas desde el CENTRO del QR.
-                -->
+                <!-- ══ HEADER ROW ══ -->
                 <div class="header-row">
-                    <!-- QR CODE — izquierda fija -->
+                    <!-- QR CODE — 32mm -->
                     <div class="qr-wrapper">
                         <img src="${qrUrl}" class="qr-img" title="QR Identificador" alt="QR">
                         <div class="qr-label">ID: ${student.id}</div>
@@ -74,7 +60,7 @@ const printer = {
                         <div class="exam-sub">Seguimiento de Competencias · Castellano ICFES</div>
                     </div>
 
-                    <!-- Meta del examen (derecha) -->
+                    <!-- Meta del examen -->
                     <div class="exam-meta">
                         <b>Examen:</b> ${exam.name}<br>
                         <b>Fecha:</b> ${new Date(exam.date).toLocaleDateString()}<br>
@@ -82,7 +68,7 @@ const printer = {
                     </div>
                 </div>
 
-                <!-- ══ STUDENT BOX (sin QR, solo texto) ══ -->
+                <!-- ══ STUDENT BOX ══ -->
                 <div class="student-box">
                     <div class="std-name"><b>Estudiante:</b> ${student.name}</div>
                     <div class="std-info">
@@ -91,13 +77,17 @@ const printer = {
                     </div>
                 </div>
 
-                <!-- ══ GRILLA DE BURBUJAS ══ -->
-                <div class="bubbles-grid" style="flex:1;">
-                    ${this.generateColumns(exam.questions.length)}
+                <!-- ══ GRILLA DE BURBUJAS con borde y marca de anclaje ══ -->
+                <div class="grid-container">
+                    <div class="bubbles-grid">
+                        ${this.generateColumns(exam.questions.length)}
+                    </div>
+                    <!-- Marca de anclaje: esquina inferior-derecha de la grilla -->
+                    <div class="anchor-mark"></div>
                 </div>
 
                 <div class="footer">
-                    INSTRUCCIÓN: Marque con oscura (X) las burbujas. No raye los 4 cuadritos esquineros.
+                    INSTRUCCIÓN: Rellene con X bien oscura la opción correcta.
                 </div>
 
             </div><!-- /inner -->
@@ -105,13 +95,12 @@ const printer = {
     },
 
     /**
-     * OPCIÓN C: Medir posiciones REALES de las burbujas desde el DOM.
+     * OPCIÓN C: Medir posiciones REALES de las burbujas + anclaje desde el DOM.
      * Crea un div oculto con los mismos estilos CSS que la hoja impresa,
      * renderiza la grilla de burbujas, y usa getBoundingClientRect() para
      * obtener las coordenadas exactas en mm de cada burbuja.
      * 
-     * Retorna: positions[questionIndex][optionIndex] = { x: mm, y: mm }
-     * donde x,y son mm desde la esquina superior-izquierda del .sheet
+     * Retorna: { positions: [q][opt] = {x, y}, anchor: {x, y} }
      */
     measureBubblePositions(numQ) {
         const perCol = Math.ceil(numQ / 3);
@@ -121,10 +110,8 @@ const printer = {
         const fontPx = Math.round(bubblePx * 0.7);
         const numPx = Math.round(fontPx * 1.3);
 
-        // Generar la grilla de burbujas (misma función que para imprimir)
         const gridHTML = this.generateColumns(numQ);
 
-        // Crear contenedor invisible con estilos IDÉNTICOS al printer
         const container = document.createElement('div');
         container.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;z-index:-1;';
         container.innerHTML = `
@@ -141,13 +128,17 @@ const printer = {
                 }
                 .m-header {
                     display: flex; gap: 8px; align-items: stretch;
-                    min-height: 28mm; max-height: 28mm;
+                    min-height: 34mm; max-height: 34mm;
                     padding-bottom: 6px; margin-bottom: 6px;
                 }
                 .m-student {
                     min-height: 17mm; max-height: 17mm;
                     padding: 6px 12px; margin-bottom: 6px;
                     border: 2px solid #94a3b8; border-radius: 6px;
+                }
+                .m-grid-container {
+                    flex: 1; position: relative;
+                    border: 3px solid #000; padding: 4mm;
                 }
                 .m-grid {
                     display: grid;
@@ -169,28 +160,34 @@ const printer = {
                     display: flex; align-items: center; justify-content: center;
                     font-weight: 600; flex-shrink: 0; font-size: ${fontPx}px;
                 }
+                .m-anchor {
+                    position: absolute; bottom: 2mm; right: 2mm;
+                    width: 8mm; height: 8mm; background: #000;
+                }
             </style>
             <div class="m-sheet">
                 <div class="m-inner">
                     <div class="m-header"></div>
                     <div class="m-student"></div>
-                    <div class="m-grid">${gridHTML}</div>
+                    <div class="m-grid-container">
+                        <div class="m-grid">${gridHTML}</div>
+                        <div class="m-anchor"></div>
+                    </div>
                 </div>
             </div>
         `;
 
         document.body.appendChild(container);
-        // Forzar cálculo de layout
-        container.offsetHeight;
+        container.offsetHeight; // forzar layout
 
         const sheet = container.querySelector('.m-sheet');
         const sheetRect = sheet.getBoundingClientRect();
         const pxToMmX = 215.9 / sheetRect.width;
         const pxToMmY = 279.4 / sheetRect.height;
 
+        // Medir burbujas
         const bubbles = container.querySelectorAll('.bubble');
         const rawPositions = [];
-
         bubbles.forEach(b => {
             const r = b.getBoundingClientRect();
             rawPositions.push({
@@ -199,13 +196,19 @@ const printer = {
             });
         });
 
+        // Medir marca de anclaje
+        const anchorEl = container.querySelector('.m-anchor');
+        const aRect = anchorEl.getBoundingClientRect();
+        const anchor = {
+            x: (aRect.left + aRect.width / 2 - sheetRect.left) * pxToMmX,
+            y: (aRect.top  + aRect.height / 2 - sheetRect.top)  * pxToMmY
+        };
+
         document.body.removeChild(container);
 
-        // Mapear orden DOM → [questionIndex][optionIndex]
-        // DOM order: col0(q0..q_perCol-1), col1(q_perCol..q_2perCol-1), col2(...)
-        // Dentro de cada columna: fila ascendente, cada fila tiene 5 burbujas (A-E)
-        const result = [];
-        for (let q = 0; q < numQ; q++) result[q] = [];
+        // Mapear DOM order → [questionIndex][optionIndex]
+        const positions = [];
+        for (let q = 0; q < numQ; q++) positions[q] = [];
 
         let bIdx = 0;
         for (let col = 0; col < 3; col++) {
@@ -213,15 +216,15 @@ const printer = {
                 const qIdx = col * perCol + row;
                 if (qIdx >= numQ) break;
                 for (let o = 0; o < 5; o++) {
-                    result[qIdx][o] = rawPositions[bIdx++];
+                    positions[qIdx][o] = rawPositions[bIdx++];
                 }
             }
         }
 
-        console.log('[Printer] Posiciones medidas para', numQ, 'preguntas:');
-        console.log('  A1:', result[0]?.[0], ' E1:', result[0]?.[4], ' A11:', result[10]?.[0]);
+        console.log('[Printer] Posiciones medidas para', numQ, 'preguntas.');
+        console.log('  A1:', positions[0]?.[0], ' Anchor:', anchor);
 
-        return result;
+        return { positions, anchor };
     },
 
     async printBatch(exam, studentsList) {
@@ -246,18 +249,7 @@ const printer = {
                 position: absolute;
                 top: 22mm; left: 22mm; right: 22mm; bottom: 22mm;
                 display: flex; flex-direction: column;
-            }
-
-            /* Marcadores de esquina */
-            .corner {
-                position: absolute; width: 14mm; height: 14mm; background: black !important;
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
-            }
-            .tl { top: 4mm;  left: 4mm; }
-            .tr { top: 4mm;  right: 4mm; }
-            .bl { bottom: 4mm; left: 4mm; }
-            .br { bottom: 4mm; right: 4mm; }
-
+            }\n
             /* ── HEADER ROW ── */
             .header-row {
                 display: flex;
@@ -266,23 +258,22 @@ const printer = {
                 border-bottom: 3px solid #1e1b4b;
                 padding-bottom: 6px;
                 margin-bottom: 6px;
-                /* Altura FIJA. Cambiar aquí = cambiar HEADER_MM en scanner.js */
-                min-height: 28mm;
-                max-height: 28mm;
+                min-height: 34mm;
+                max-height: 34mm;
             }
 
-            /* QR: columna izquierda, 28mm exactos desde el borde del inner */
+            /* QR: 32mm para mejor detección */
             .qr-wrapper {
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 justify-content: flex-start;
                 flex-shrink: 0;
-                width: 28mm;
+                width: 32mm;
             }
             .qr-img {
-                width: 28mm;
-                height: 28mm;
+                width: 32mm;
+                height: 32mm;
                 display: block;
                 image-rendering: pixelated;
                 background: white;
@@ -292,7 +283,7 @@ const printer = {
                 text-align: center;
                 color: #555;
                 margin-top: 1px;
-                max-width: 28mm;
+                max-width: 32mm;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -336,7 +327,6 @@ const printer = {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                /* ALTURA FIJA: el scanner.js depende de este valor exacto (17mm) */
                 min-height: 17mm;
                 max-height: 17mm;
                 overflow: hidden;
@@ -349,7 +339,15 @@ const printer = {
                 border-radius: 4px; background: white; color: #1e1b4b;
             }
 
-            /* ── BURBUJAS ── */
+            /* ── GRILLA DE BURBUJAS (con borde y anclaje) ── */
+            .grid-container {
+                flex: 1;
+                position: relative;
+                border: 3px solid #000;
+                padding: 4mm;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
             .bubbles-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 24px; }
             .col   { display: flex; flex-direction: column; gap: 4px; }
             .qrow  { display: flex; align-items: center; gap: 5px; font-size: 13px; }
@@ -358,6 +356,16 @@ const printer = {
                 border: 1.5px solid #333; border-radius: 50%;
                 display: flex; align-items: center; justify-content: center;
                 font-weight: 600; flex-shrink: 0;
+            }
+
+            /* Marca de anclaje: cuadro negro en esquina inferior-derecha de la grilla */
+            .anchor-mark {
+                position: absolute;
+                bottom: 2mm; right: 2mm;
+                width: 8mm; height: 8mm;
+                background: #000 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
 
             /* Footer */
