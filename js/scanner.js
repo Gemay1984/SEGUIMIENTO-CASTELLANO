@@ -384,7 +384,7 @@ const scanner = {
      * ═══════════════════════════════════════════════════════════ */
 
     getLayout(numQ) {
-        const PX = 0.2646; // mm por CSS px
+        const PX_TO_MM = 0.2646; // mm por CSS px
         const cols = 3;
         const perCol = Math.ceil(numQ / 3);
         const availableMM = 173;
@@ -394,22 +394,26 @@ const scanner = {
         const fontPx = Math.round(bubblePx * 0.7);
         const numPx = Math.round(fontPx * 1.3);
 
-        const colGap  = 24 * PX;
-        const rowGap  = 4 * PX;
-        const innerW  = 171.9;
-        const colW    = (innerW - 2 * colGap) / cols;
+        const innerMM = 171.9;
+        const colGapMM = 24 * PX_TO_MM; // = 6.35mm
+        const colW = (innerMM - 2 * colGapMM) / 3; // = 53.07mm
+        
+        const rowGap_mm = 4 * PX_TO_MM;
 
-        const qnumWidth = numPx * 2.8 * PX; 
-        const gap       = 5 * PX;          
-        const bDiam     = bubblePx * PX;   
+        const bubbleDiamMM = bubblePx * PX_TO_MM;
+        const bubbleSpacing = bubbleDiamMM + (5 * PX_TO_MM);
+
+        const qnumWidthMM = numPx * 2.8 * PX_TO_MM;
+        const gapAfterQnum = 5 * PX_TO_MM;
+        const bubbleStartX = qnumWidthMM + gapAfterQnum + bubbleDiamMM / 2;
 
         return {
-            cols, rowsPerCol: perCol, rowMM, rowGap,
-            colW, colGap,
+            cols, rowsPerCol: perCol, rowMM, rowGap: rowGap_mm,
+            colW, colGap: colGapMM,
             numPx,
-            bubbleStartX: qnumWidth + gap + bDiam / 2,
-            bubbleSpacing: bDiam + gap,
-            bubbleRadius: bDiam / 2,
+            bubbleStartX,
+            bubbleSpacing,
+            bubbleRadius: bubbleDiamMM / 2,
         };
     },
 
@@ -632,6 +636,13 @@ const scanner = {
         const numQ  = exam.questions.length;
         const L     = this.getLayout(numQ);
         const OPTS  = ['A','B','C','D','E'];
+
+        console.table([
+            { col:0, q:0,  xMM: this.bubbleSheetMM(0,  0, L).x.toFixed(2) },
+            { col:1, q:10, xMM: this.bubbleSheetMM(10, 0, L).x.toFixed(2) },
+            { col:2, q:20, xMM: this.bubbleSheetMM(20, 0, L).x.toFixed(2) },
+        ]);
+
         // Radio de muestreo: CLAVE evitar incluir el grueso borde negro
         const sampleR = L.bubbleRadius * 0.55 * pxPerMm;
         const answers    = [];
