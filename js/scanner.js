@@ -1,5 +1,5 @@
 /**
- * ZIPCASTELLANO SCANNER v6 — Geometría Actualizada para Nuevo Layout del Printer
+ * ZIPCASTELLANO SCANNER v9.4 — Geometría por Diagonal (QR + Anchor)
  *
  * Nuevo layout de la hoja (printer.js v2):
  * ──────────────────────────────────────────────────────────
