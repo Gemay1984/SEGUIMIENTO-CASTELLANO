@@ -100,9 +100,13 @@ const scanner = {
 
     // Estado de esquinas detectadas (se actualiza en drawOverlay)
     lastCorners: null,
-    cornerFrames: 0, // contador para auto-captura estable
+    cornerFrames: 0,
 
-    // Calibración Avanzada
+    // Cache de posiciones medidas desde el DOM (Opción C)
+    _measuredPositions: null,
+    _measuredForNumQ: 0,
+
+    // Calibración Avanzada (ajuste fino sobre posiciones medidas)
     GRID_DY_ADJUST: 0,
     GRID_DX_ADJUST: 0,
     GRID_SCALE_X: 1.0,
@@ -441,79 +445,49 @@ const scanner = {
     },
 
     /* ═══════════════════════════════════════════════════════════
-     * GEOMETRÍA — espeja printer.js
+     * GEOMETRÍA — Posiciones medidas desde el DOM (Opción C)
+     *
+     * En lugar de calcular posiciones con aritmética manual,
+     * renderizamos una hoja virtual con los mismos estilos CSS
+     * y medimos dónde el navegador colocó cada burbuja.
      * ═══════════════════════════════════════════════════════════ */
 
+    /** Obtiene posiciones medidas, con cache por numQ. */
+    getMeasuredPositions(numQ) {
+        if (!this._measuredPositions || this._measuredForNumQ !== numQ) {
+            this._measuredPositions = printer.measureBubblePositions(numQ);
+            this._measuredForNumQ = numQ;
+            console.log('[Scanner] Posiciones DOM cacheadas para', numQ, 'preguntas');
+        }
+        return this._measuredPositions;
+    },
+
+    /** Layout mínimo: solo lo necesario para radio de burbuja y overlay. */
     getLayout(numQ) {
-        const PX_TO_MM = 0.2646; // mm por CSS px
-        const cols = 3;
+        const PX_TO_MM = 0.2646;
         const perCol = Math.ceil(numQ / 3);
         const availableMM = 173;
         const rowMM = Math.min(10.5, Math.max(5.5, availableMM / perCol));
-
         const bubblePx = Math.round(Math.min(22, Math.max(15, rowMM * 2.2)));
-        const fontPx = Math.round(bubblePx * 0.7);
-        const numPx = Math.round(fontPx * 1.3);
-
-        const innerMM = 171.9;
-        const colGapMM = 24 * PX_TO_MM; // = 6.35mm
-        const colW = (innerMM - 2 * colGapMM) / 3; // = 53.07mm
-        
-        const rowGap_mm = 4 * PX_TO_MM;
-
-        // Nuevos cálculos directos según instrucción
-        const qnumWidthPx = numPx * 2.8; 
-        const qnumWidthMM = qnumWidthPx * PX_TO_MM;
-        const rowFlexGapMM = 5 * PX_TO_MM; // El gap flex de 5px aplica entre el número y la burbuja A, y entre cada burbuja
         const bubbleDiamMM = bubblePx * PX_TO_MM;
-        const bubbleRadiusMM = bubbleDiamMM / 2;
-
-        // El centro de la burbuja A inicia después del ancho del número, más el gap del flex, más su propio radio
-        const bubbleStartX = qnumWidthMM + rowFlexGapMM + bubbleRadiusMM;
-
-        // La distancia entre el centro de una burbuja y la siguiente es su diámetro entero más el gap del flex
-        const bubbleSpacing = bubbleDiamMM + rowFlexGapMM;
 
         return {
-            cols, rowsPerCol: perCol, rowMM, rowGap: rowGap_mm,
-            colW, colGap: colGapMM,
-            numPx,
-            bubbleStartX,
-            bubbleSpacing,
-            bubbleRadius: bubbleRadiusMM,
+            numQ,
+            cols: 3,
+            rowsPerCol: perCol,
+            rowMM,
+            bubbleRadius: bubbleDiamMM / 2,
         };
     },
 
-    getGridOrigin(L) {
-        const innerLeft = 22;
-        const x = innerLeft; // El offset base X es solo el margen izquierdo del .inner
-
-        const innerTop = 22;
-        const headerRow = 28;
-        const paddingBottom = 6 * 0.2646;  // 1.5876
-        const marginBottom = 6 * 0.2646;   // 1.5876
-        const studentBox = 17;
-        const marginBottom2 = 6 * 0.2646;  // 1.5876
-        const firstRowCenter = L.rowMM / 2;
-        
-        const y = innerTop + headerRow + paddingBottom + marginBottom + studentBox + marginBottom2 + firstRowCenter;
-
-        return { x, y };
-    },
-
-    /** Posición absoluta en hoja (mm desde TL de la hoja) del centro de una burbuja. */
+    /** Posición absoluta en hoja (mm desde TL) usando posiciones DOM medidas. */
     bubbleSheetMM(q, opt, L) {
-        const col = Math.floor(q / L.rowsPerCol);
-        const row = q % L.rowsPerCol;
-        
-        const colOffsetMM = col * (L.colW + L.colGap);
-        const bubbleX_inner = colOffsetMM + L.bubbleStartX + opt * L.bubbleSpacing;
-        const origin = this.getGridOrigin(L);
-
+        const positions = this.getMeasuredPositions(L.numQ);
+        const pos = positions[q]?.[opt];
+        if (!pos) return { x: 0, y: 0 };
         return {
-            // 22 es el left fijo del .inner
-            x: 22 + bubbleX_inner + (this.GRID_DX_ADJUST * this.GRID_SCALE_X),
-            y: origin.y + this.GRID_DY_ADJUST + row * (L.rowMM + L.rowGap)
+            x: pos.x + this.GRID_DX_ADJUST,
+            y: pos.y + this.GRID_DY_ADJUST
         };
     },
 
@@ -706,13 +680,18 @@ const scanner = {
         const L     = this.getLayout(numQ);
         const OPTS  = ['A','B','C','D','E'];
 
+        // Log de verificación: posiciones medidas desde el DOM
+        const posA1 = this.bubbleSheetMM(0, 0, L);
+        const posE1 = this.bubbleSheetMM(0, 4, L);
+        const posA11 = numQ > 10 ? this.bubbleSheetMM(10, 0, L) : null;
         console.table([
-            { col:0, q:0,  burbuja: 'A1',  xMM: this.bubbleSheetMM(0,  0, L).x.toFixed(1) },
-            { col:0, q:0,  burbuja: 'E1',  xMM: this.bubbleSheetMM(0,  4, L).x.toFixed(1) },
-            { col:1, q:10, burbuja: 'A11', xMM: this.bubbleSheetMM(10, 0, L).x.toFixed(1) }
+            { burbuja: 'A1',  xMM: posA1.x.toFixed(1),  yMM: posA1.y.toFixed(1) },
+            { burbuja: 'E1',  xMM: posE1.x.toFixed(1),  yMM: posE1.y.toFixed(1) },
+            ...(posA11 ? [{ burbuja: 'A11', xMM: posA11.x.toFixed(1), yMM: posA11.y.toFixed(1) }] : []),
         ]);
+        console.log('[Scanner] Usando posiciones DOM medidas ✅');
 
-        // Radio de muestreo: CLAVE evitar incluir el grueso borde negro
+        // Radio de muestreo: evitar incluir el grueso borde negro de la burbuja
         const sampleR = L.bubbleRadius * 0.55 * pxPerMm;
         const answers    = [];
         const bubbleData = [];

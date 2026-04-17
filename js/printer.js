@@ -104,6 +104,126 @@ const printer = {
         </div><!-- /sheet -->`;
     },
 
+    /**
+     * OPCIÓN C: Medir posiciones REALES de las burbujas desde el DOM.
+     * Crea un div oculto con los mismos estilos CSS que la hoja impresa,
+     * renderiza la grilla de burbujas, y usa getBoundingClientRect() para
+     * obtener las coordenadas exactas en mm de cada burbuja.
+     * 
+     * Retorna: positions[questionIndex][optionIndex] = { x: mm, y: mm }
+     * donde x,y son mm desde la esquina superior-izquierda del .sheet
+     */
+    measureBubblePositions(numQ) {
+        const perCol = Math.ceil(numQ / 3);
+        const availableMM = 173;
+        const rowMM = Math.min(10.5, Math.max(5.5, availableMM / perCol));
+        const bubblePx = Math.round(Math.min(22, Math.max(15, rowMM * 2.2)));
+        const fontPx = Math.round(bubblePx * 0.7);
+        const numPx = Math.round(fontPx * 1.3);
+
+        // Generar la grilla de burbujas (misma función que para imprimir)
+        const gridHTML = this.generateColumns(numQ);
+
+        // Crear contenedor invisible con estilos IDÉNTICOS al printer
+        const container = document.createElement('div');
+        container.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;z-index:-1;';
+        container.innerHTML = `
+            <style>
+                .m-sheet * { box-sizing: border-box; margin: 0; padding: 0; }
+                .m-sheet {
+                    width: 215.9mm; height: 279.4mm;
+                    position: relative; font-family: 'Outfit', sans-serif;
+                }
+                .m-inner {
+                    position: absolute;
+                    top: 22mm; left: 22mm; right: 22mm; bottom: 22mm;
+                    display: flex; flex-direction: column;
+                }
+                .m-header {
+                    display: flex; gap: 8px; align-items: stretch;
+                    min-height: 28mm; max-height: 28mm;
+                    padding-bottom: 6px; margin-bottom: 6px;
+                }
+                .m-student {
+                    min-height: 17mm; max-height: 17mm;
+                    padding: 6px 12px; margin-bottom: 6px;
+                    border: 2px solid #94a3b8; border-radius: 6px;
+                }
+                .m-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr 1fr;
+                    gap: 0 24px;
+                }
+                .m-grid .col { display: flex; flex-direction: column; gap: 4px; }
+                .m-grid .qrow {
+                    display: flex; align-items: center; gap: 5px;
+                    font-size: 13px; height: ${rowMM}mm;
+                }
+                .m-grid .qnum {
+                    text-align: right; font-weight: 700; flex-shrink: 0;
+                    width: ${numPx * 2.8}px; font-size: ${numPx}px;
+                }
+                .m-grid .bubble {
+                    width: ${bubblePx}px; height: ${bubblePx}px;
+                    border: 1.5px solid #333; border-radius: 50%;
+                    display: flex; align-items: center; justify-content: center;
+                    font-weight: 600; flex-shrink: 0; font-size: ${fontPx}px;
+                }
+            </style>
+            <div class="m-sheet">
+                <div class="m-inner">
+                    <div class="m-header"></div>
+                    <div class="m-student"></div>
+                    <div class="m-grid">${gridHTML}</div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(container);
+        // Forzar cálculo de layout
+        container.offsetHeight;
+
+        const sheet = container.querySelector('.m-sheet');
+        const sheetRect = sheet.getBoundingClientRect();
+        const pxToMmX = 215.9 / sheetRect.width;
+        const pxToMmY = 279.4 / sheetRect.height;
+
+        const bubbles = container.querySelectorAll('.bubble');
+        const rawPositions = [];
+
+        bubbles.forEach(b => {
+            const r = b.getBoundingClientRect();
+            rawPositions.push({
+                x: (r.left + r.width / 2 - sheetRect.left) * pxToMmX,
+                y: (r.top  + r.height / 2 - sheetRect.top)  * pxToMmY
+            });
+        });
+
+        document.body.removeChild(container);
+
+        // Mapear orden DOM → [questionIndex][optionIndex]
+        // DOM order: col0(q0..q_perCol-1), col1(q_perCol..q_2perCol-1), col2(...)
+        // Dentro de cada columna: fila ascendente, cada fila tiene 5 burbujas (A-E)
+        const result = [];
+        for (let q = 0; q < numQ; q++) result[q] = [];
+
+        let bIdx = 0;
+        for (let col = 0; col < 3; col++) {
+            for (let row = 0; row < perCol; row++) {
+                const qIdx = col * perCol + row;
+                if (qIdx >= numQ) break;
+                for (let o = 0; o < 5; o++) {
+                    result[qIdx][o] = rawPositions[bIdx++];
+                }
+            }
+        }
+
+        console.log('[Printer] Posiciones medidas para', numQ, 'preguntas:');
+        console.log('  A1:', result[0]?.[0], ' E1:', result[0]?.[4], ' A11:', result[10]?.[0]);
+
+        return result;
+    },
+
     async printBatch(exam, studentsList) {
         const css = `
             @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap');
