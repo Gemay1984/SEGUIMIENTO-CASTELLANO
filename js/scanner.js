@@ -400,12 +400,18 @@ const scanner = {
         
         const rowGap_mm = 4 * PX_TO_MM;
 
+        // Nuevos cálculos directos según instrucción
+        const qnumWidthPx = numPx * 2.8; 
+        const qnumWidthMM = qnumWidthPx * PX_TO_MM;
+        const rowFlexGapMM = 5 * PX_TO_MM; // El gap flex de 5px aplica entre el número y la burbuja A, y entre cada burbuja
         const bubbleDiamMM = bubblePx * PX_TO_MM;
-        const bubbleSpacing = bubbleDiamMM + (5 * PX_TO_MM);
+        const bubbleRadiusMM = bubbleDiamMM / 2;
 
-        const qnumWidthMM = numPx * 2.8 * PX_TO_MM;
-        const gapAfterQnum = 5 * PX_TO_MM;
-        const bubbleStartX = qnumWidthMM + gapAfterQnum + bubbleDiamMM / 2;
+        // El centro de la burbuja A inicia después del ancho del número, más el gap del flex, más su propio radio
+        const bubbleStartX = qnumWidthMM + rowFlexGapMM + bubbleRadiusMM;
+
+        // La distancia entre el centro de una burbuja y la siguiente es su diámetro entero más el gap del flex
+        const bubbleSpacing = bubbleDiamMM + rowFlexGapMM;
 
         return {
             cols, rowsPerCol: perCol, rowMM, rowGap: rowGap_mm,
@@ -413,7 +419,7 @@ const scanner = {
             numPx,
             bubbleStartX,
             bubbleSpacing,
-            bubbleRadius: bubbleDiamMM / 2,
+            bubbleRadius: bubbleRadiusMM,
         };
     },
 
@@ -439,11 +445,13 @@ const scanner = {
         const col = Math.floor(q / L.rowsPerCol);
         const row = q % L.rowsPerCol;
         
-        const bubbleX_inner = col * (L.colW + L.colGap) + L.bubbleStartX + opt * L.bubbleSpacing;
+        const colOffsetMM = col * (L.colW + L.colGap);
+        const bubbleX_inner = colOffsetMM + L.bubbleStartX + opt * L.bubbleSpacing;
         const origin = this.getGridOrigin(L);
 
         return {
-            x: origin.x + this.GRID_DX_ADJUST + (bubbleX_inner * this.GRID_SCALE_X),
+            // 22 es el left fijo del .inner
+            x: 22 + bubbleX_inner + (this.GRID_DX_ADJUST * this.GRID_SCALE_X),
             y: origin.y + this.GRID_DY_ADJUST + row * (L.rowMM + L.rowGap)
         };
     },
@@ -638,9 +646,9 @@ const scanner = {
         const OPTS  = ['A','B','C','D','E'];
 
         console.table([
-            { col:0, q:0,  xMM: this.bubbleSheetMM(0,  0, L).x.toFixed(2) },
-            { col:1, q:10, xMM: this.bubbleSheetMM(10, 0, L).x.toFixed(2) },
-            { col:2, q:20, xMM: this.bubbleSheetMM(20, 0, L).x.toFixed(2) },
+            { col:0, q:0,  burbuja: 'A1',  xMM: this.bubbleSheetMM(0,  0, L).x.toFixed(1) },
+            { col:0, q:0,  burbuja: 'E1',  xMM: this.bubbleSheetMM(0,  4, L).x.toFixed(1) },
+            { col:1, q:10, burbuja: 'A11', xMM: this.bubbleSheetMM(10, 0, L).x.toFixed(1) }
         ]);
 
         // Radio de muestreo: CLAVE evitar incluir el grueso borde negro
