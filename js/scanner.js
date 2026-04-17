@@ -53,8 +53,8 @@ const scanner = {
     // Auto-Captura Inteligente — estabilidad del QR
     consecutiveStableFrames: 0,
     lastStableQRLocation: null,
-    STABLE_THRESHOLD_PX: 12,     // máx movimiento en px para considerar "estable"
-    STABLE_FRAMES_REQUIRED: 8,   // frames estables consecutivos para auto-captura
+    STABLE_THRESHOLD_PX: 8,      // máx movimiento en px para considerar "estable"
+    STABLE_FRAMES_REQUIRED: 22,   // ~1.5s de estabilidad antes de auto-captura
     autoCaptureEnabled: true,
 
     // Grading state
@@ -297,6 +297,7 @@ const scanner = {
                 // ── Auto-Captura Inteligente ──
                 if (this.autoCaptureEnabled &&
                     this.currentStudent && this.currentExam &&
+                    this.lastCorners &&
                     this.consecutiveStableFrames >= this.STABLE_FRAMES_REQUIRED) {
 
                     this.cooldown = true;
