@@ -141,25 +141,56 @@
                     <button class="btn" id="stop-scan" onclick="scanner.stop()">⏹ Detener</button>
                 </div>
                 <div id="scan-status" style="color:var(--accent); font-size:0.9rem; text-align:center;">Selecciona un examen y activa la cámara.</div>
-
-                <!-- Calibración fina de posición vertical de burbujas -->
+                <!-- Calibración fina de posición de burbujas -->
                 <details style="width:100%; max-width:600px; margin-top:8px;">
-                    <summary style="cursor:pointer; color:var(--text-muted); font-size:0.82rem; user-select:none;">🔧 Calibración de posición de burbujas</summary>
+                    <summary style="cursor:pointer; color:var(--text-muted); font-size:0.82rem; user-select:none;">🔧 Calibración Avanzada de Burbujas</summary>
                     <div style="background:rgba(255,255,255,0.05); border-radius:10px; padding:14px 18px; margin-top:8px;">
-                        <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">
-                            Si los puntitos <b style="color:#63e6ff">cyan</b> en la cámara no coinciden con las burbujas del papel, ajusta este valor.<br>
-                            <b>+</b> baja la grilla · <b>−</b> la sube
+                        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:12px; line-height:1.4;">
+                            Si los puntitos <b style="color:#63e6ff">cyan/verdes</b> no encajan perfecto sobre las letras (A,B,C,D,E), ajusta estos valores según cómo haya salido tu impresión.
                         </p>
-                        <div style="display:flex; align-items:center; gap:12px;">
-                            <span style="font-size:0.75rem; color:var(--text-muted);">−15mm</span>
-                            <input type="range" id="calibrate-dy" min="-15" max="15" step="0.5" value="0"
-                                style="flex:1; accent-color:var(--accent);">
-                            <span style="font-size:0.75rem; color:var(--text-muted);">+15mm</span>
-                            <span id="calibrate-dy-label" style="min-width:50px; text-align:right; font-weight:700; color:var(--accent); font-size:0.9rem;">+0.0 mm</span>
+                        
+                        <!-- Y (Vertical) -->
+                        <div style="margin-bottom:8px;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted); margin-bottom:2px;">
+                                <span>Vertical (Arriba/Abajo)</span>
+                                <span id="calibrate-dy-label" style="font-weight:700; color:var(--accent);">+0.0 mm</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-size:0.7rem; color:var(--text-muted);">-15</span>
+                                <input type="range" id="calibrate-dy" min="-15" max="15" step="0.5" value="0" style="flex:1; accent-color:var(--accent);">
+                                <span style="font-size:0.7rem; color:var(--text-muted);">+15</span>
+                            </div>
                         </div>
-                        <button class="btn" onclick="scanner.GRID_DY_ADJUST=0; document.getElementById('calibrate-dy').value=0; document.getElementById('calibrate-dy-label').textContent='+0.0 mm'; localStorage.setItem('zc_dy_adjust','0');"
-                            style="margin-top:8px; font-size:0.78rem; padding:4px 12px; background:rgba(255,255,255,0.1);">
-                            ↺ Restablecer
+
+                        <!-- X (Horizontal Offset) -->
+                        <div style="margin-bottom:8px;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted); margin-bottom:2px;">
+                                <span>Horizontal (Izquierda/Derecha)</span>
+                                <span id="calibrate-dx-label" style="font-weight:700; color:#93c5fd;">+10.0 mm</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-size:0.7rem; color:var(--text-muted);">-25</span>
+                                <input type="range" id="calibrate-dx" min="-25" max="25" step="0.5" value="10" style="flex:1; accent-color:#93c5fd;">
+                                <span style="font-size:0.7rem; color:var(--text-muted);">+25</span>
+                            </div>
+                        </div>
+
+                        <!-- Scale X (Ancho entre columnas) -->
+                        <div style="margin-bottom:12px;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted); margin-bottom:2px;">
+                                <span>Escala (Ancho entre columnas)</span>
+                                <span id="calibrate-sx-label" style="font-weight:700; color:#fde047;">1.00x</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-size:0.7rem; color:var(--text-muted);">0.8x</span>
+                                <input type="range" id="calibrate-sx" min="0.8" max="1.2" step="0.01" value="1" style="flex:1; accent-color:#fde047;">
+                                <span style="font-size:0.7rem; color:var(--text-muted);">1.2x</span>
+                            </div>
+                        </div>
+
+                        <button class="btn" onclick="scanner.resetCalibration()"
+                            style="width:100%; font-size:0.78rem; padding:6px; background:rgba(255,255,255,0.1);">
+                            ↺ Restablecer a Valores por Defecto
                         </button>
                     </div>
                 </details>
@@ -304,14 +335,14 @@
         }
     </style>
 
-    <script src="js/app.js?v=7.6"></script>
-    <script src="js/scanner.js?v=7.6"></script>
-    <script src="js/printer.js?v=7.6"></script>
+    <script src="js/app.js?v=7.7"></script>
+    <script src="js/scanner.js?v=7.7"></script>
+    <script src="js/printer.js?v=7.7"></script>
     <script>
         lucide.createIcons();
         // Registrar Service Worker para PWA
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js?v=7.6')
+            navigator.serviceWorker.register('./sw.js?v=7.7')
                 .then(reg => console.log('SW registrado', reg.scope))
                 .catch(err => console.log('SW error', err));
         }

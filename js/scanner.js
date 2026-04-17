@@ -98,6 +98,11 @@ const scanner = {
     lastCorners: null,
     cornerFrames: 0, // contador para auto-captura estable
 
+    // Calibración Avanzada
+    GRID_DY_ADJUST: 0,
+    GRID_DX_ADJUST: 0,
+    GRID_SCALE_X: 1.0,
+
     /* ═══════════════════════════════════════════════════════════
      * INICIALIZACIÓN
      * ═══════════════════════════════════════════════════════════ */
@@ -107,23 +112,42 @@ const scanner = {
         document.getElementById('scan-exam-select')
             ?.addEventListener('change', () => this.updateExamInfo());
 
-        // Leer ajuste de calibración desde el slider de la UI
-        const slider = document.getElementById('calibrate-dy');
-        if (slider) {
-            // Cargar valor guardado
-            const saved = parseFloat(localStorage.getItem('zc_dy_adjust') || '0');
-            slider.value = saved;
-            this.GRID_DY_ADJUST = saved;
-            const label = document.getElementById('calibrate-dy-label');
-            if (label) label.textContent = (saved >= 0 ? '+' : '') + saved.toFixed(1) + ' mm';
+        // Inicializar sliders de calibración
+        this.initSlider('calibrate-dy', 'zc_dy_adjust', 'GRID_DY_ADJUST', 0, v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' mm');
+        this.initSlider('calibrate-dx', 'zc_dx_adjust', 'GRID_DX_ADJUST', 0, v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' mm');
+        this.initSlider('calibrate-sx', 'zc_sx_adjust', 'GRID_SCALE_X', 1.0, v => v.toFixed(2) + 'x');
+    },
 
-            slider.addEventListener('input', () => {
-                const v = parseFloat(slider.value);
-                this.GRID_DY_ADJUST = v;
-                localStorage.setItem('zc_dy_adjust', v);
-                if (label) label.textContent = (v >= 0 ? '+' : '') + v.toFixed(1) + ' mm';
-            });
-        }
+    initSlider(id, storageKey, prop, defaultVal, formatFn) {
+        const slider = document.getElementById(id);
+        if (!slider) return;
+        const saved = parseFloat(localStorage.getItem(storageKey));
+        const val = isNaN(saved) ? defaultVal : saved;
+        
+        slider.value = val;
+        this[prop] = val;
+        
+        const label = document.getElementById(id + '-label');
+        if (label) label.textContent = formatFn(val);
+
+        slider.addEventListener('input', () => {
+            const v = parseFloat(slider.value);
+            this[prop] = v;
+            localStorage.setItem(storageKey, v);
+            if (label) label.textContent = formatFn(v);
+        });
+    },
+
+    resetCalibration() {
+        localStorage.removeItem('zc_dy_adjust');
+        localStorage.removeItem('zc_dx_adjust');
+        localStorage.removeItem('zc_sx_adjust');
+        this.GRID_DY_ADJUST = 0;
+        this.GRID_DX_ADJUST = 0;
+        this.GRID_SCALE_X = 1.0;
+        this.initSlider('calibrate-dy', 'zc_dy_adjust', 'GRID_DY_ADJUST', 0, v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' mm');
+        this.initSlider('calibrate-dx', 'zc_dx_adjust', 'GRID_DX_ADJUST', 0, v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' mm');
+        this.initSlider('calibrate-sx', 'zc_sx_adjust', 'GRID_SCALE_X', 1.0, v => v.toFixed(2) + 'x');
     },
 
     populateExamSelect() {
@@ -394,9 +418,12 @@ const scanner = {
     bubbleSheetMM(q, opt, L) {
         const col = Math.floor(q / L.rowsPerCol);
         const row = q % L.rowsPerCol;
+        
+        const baseX = col * (L.colW + L.colGap) + L.bubbleStartX + opt * L.bubbleSpacing;
+
         return {
-            x: this.GRID_SHEET_MM.x + col * (L.colW + L.colGap) + L.bubbleStartX + opt * L.bubbleSpacing,
-            y: this.GRID_SHEET_MM.y + row * (L.rowMM + L.rowGap) + L.rowMM / 2
+            x: this.GRID_SHEET_MM.x + this.GRID_DX_ADJUST + (baseX * this.GRID_SCALE_X),
+            y: this.GRID_SHEET_MM.y + this.GRID_DY_ADJUST + row * (L.rowMM + L.rowGap) + L.rowMM / 2
         };
     },
 
