@@ -490,9 +490,33 @@ const scanner = {
         };
     },
 
-    /* ═══════════════════════════════════════════════════════════
-     * HOMOGRAFÍA — 4 marcadores de esquina
-     * ═══════════════════════════════════════════════════════════ */
+    /** Centroide de píxeles oscuros en un radio alrededor de (cx,cy). */
+    findDarkCentroid(ctx, cx, cy, radius, maxW, maxH) {
+        const r  = Math.ceil(radius);
+        const x0 = Math.max(0, Math.round(cx) - r);
+        const y0 = Math.max(0, Math.round(cy) - r);
+        const x1 = Math.min(maxW, Math.round(cx) + r);
+        const y1 = Math.min(maxH, Math.round(cy) + r);
+        const w  = x1 - x0, h = y1 - y0;
+        if (w <= 0 || h <= 0) return null;
+        
+        const data  = ctx.getImageData(x0, y0, w, h).data;
+        let sumX = 0, sumY = 0, count = 0;
+        
+        for (let py = 0; py < h; py++) {
+            for (let px = 0; px < w; px++) {
+                const i  = (py * w + px) * 4;
+                const br = data[i]*0.299 + data[i+1]*0.587 + data[i+2]*0.114;
+                if (br < 70) { 
+                    sumX += x0 + px; 
+                    sumY += y0 + py; 
+                    count++; 
+                }
+            }
+        }
+        if (count < 40) return null; // cuadro oscuro no detectado
+        return { x: sumX/count, y: sumY/count };
+    },
 
     /* ═══════════════════════════════════════════════════════════
      * CALIFICACIÓN
@@ -546,24 +570,55 @@ const scanner = {
         const qrCY    = (tl.y + br.y) / 2;
         const topEdge = Math.hypot(tr.x - tl.x, tr.y - tl.y);
         const lefEdge = Math.hypot(bl.x - tl.x, bl.y - tl.y);
-        const qrSizePx = (topEdge + lefEdge) / 2;
-        const angle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
-        const pxPerMm = qrSizePx / this.QR_CONTENT_MM;
-
-        this._lastMethod = 'QR offset + DOM';
-        const bubblePosFn = (q, o, L) => {
-            const mm = this.bubbleMM(q, o, L);
-            return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, angle, pxPerMm);
-        };
+        const localQrSizePx = (topEdge + lefEdge) / 2;
+        const localAngle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
+        const localPxPerMm = localQrSizePx / this.QR_CONTENT_MM;
 
         const numQ  = exam.questions.length;
         const L     = this.getLayout(numQ);
         const OPTS  = ['A','B','C','D','E'];
 
-        // Obtener anchor y posiciones (solo para log y verificación, getMeasuredPositions fue actualizado pero aquí usamos bubblePosFn)
         const measured = this.getMeasuredPositions(numQ);
-        const anchor = measured.anchor || {x:0,y:0};
+        const anchorMM = measured.anchor || {x:0, y:0};
+
+        // ── DIAGONAL: QR -> ANCHOR ──
+        // 1. Predecir ubicación del anchor en píxeles usando solo el QR
+        const dxMM = anchorMM.x - this.QR_SHEET_MM.x;
+        const dyMM = anchorMM.y - this.QR_SHEET_MM.y;
+        const predAnchorPx = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
         
+        // 2. Buscar el centroide negro real cerca de la predicción (radio grande, ~25mm)
+        const searchRadio = 25 * localPxPerMm;
+        const realAnchorPx = this.findDarkCentroid(ctx, predAnchorPx.x, predAnchorPx.y, searchRadio, canvas.width, canvas.height);
+
+        let globalAngle = localAngle;
+        let globalPxPerMm = localPxPerMm;
+
+        if (realAnchorPx) {
+            // Recálculo global basado en la geometría de los 2 puntos distantes
+            const distMM = Math.hypot(dxMM, dyMM);
+            const distPX = Math.hypot(realAnchorPx.x - qrCX, realAnchorPx.y - qrCY);
+            
+            globalPxPerMm = distPX / distMM;
+            
+            const thetaMM = Math.atan2(dyMM, dxMM);
+            const thetaPX = Math.atan2(realAnchorPx.y - qrCY, realAnchorPx.x - qrCX);
+            globalAngle = thetaPX - thetaMM;
+            
+            this._lastMethod = 'Diagonal (QR + Anchor) ✅';
+            console.log(`[Scanner] Anchor detectado. Offset corr: ${(globalAngle - localAngle).toFixed(3)} rad`);
+        } else {
+            this._lastMethod = 'Solo QR (Fallback) ⚠️';
+            console.warn('[Scanner] Anchor mark NO encontrado. Usando solo QR. La precisión caerá.');
+            app.toast('⚠️ Marca de anclaje no vista, la nota puede ser imprecisa.', true);
+        }
+
+        const bubblePosFn = (q, o, L_) => {
+            const mm = this.bubbleMM(q, o, L_);
+            // Usa el ángulo y escala *Globales*
+            return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, globalAngle, globalPxPerMm);
+        };
+
         // Log de verificación: posiciones medidas desde el DOM
         const posA1 = this.bubbleSheetMM(0, 0, L);
         const posE1 = this.bubbleSheetMM(0, 4, L);
@@ -571,12 +626,12 @@ const scanner = {
             { punto: 'QR Center', xMM: this.QR_SHEET_MM.x.toFixed(1), yMM: this.QR_SHEET_MM.y.toFixed(1) },
             { punto: 'A1',  xMM: posA1.x.toFixed(1),  yMM: posA1.y.toFixed(1) },
             { punto: 'E1',  xMM: posE1.x.toFixed(1),  yMM: posE1.y.toFixed(1) },
-            { punto: 'Anchor', xMM: anchor.x.toFixed(1), yMM: anchor.y.toFixed(1) },
+            { punto: 'Anchor', xMM: anchorMM.x.toFixed(1), yMM: anchorMM.y.toFixed(1) },
         ]);
-        console.log('[Scanner] Detección anclada al QR usando proyecciones DOM ✅');
+        console.log('[Scanner] Método calibración:', this._lastMethod);
 
-        // Radio de muestreo: evitar incluir el grueso borde negro de la burbuja
-        const sampleR = L.bubbleRadius * 0.55 * pxPerMm;
+        // Radio de muestreo
+        const sampleR = L.bubbleRadius * 0.55 * globalPxPerMm;
         const answers    = [];
         const bubbleData = [];
 
@@ -929,17 +984,45 @@ const scanner = {
             const qrCY    = (tl.y + br.y) / 2;
             const topEdge = Math.hypot(tr.x - tl.x, tr.y - tl.y);
             const lefEdge = Math.hypot(bl.x - tl.x, bl.y - tl.y);
-            const pxPerMm = ((topEdge + lefEdge) / 2) / this.QR_CONTENT_MM;
-            const angle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
+            const localPxPerMm = ((topEdge + lefEdge) / 2) / this.QR_CONTENT_MM;
+            const localAngle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
 
-            // Dibujar puntos de burbujas sin esquinas, solo con offset
             const numQ = this.currentExam.questions.length;
             const L    = this.getLayout(numQ);
-            const r    = Math.max(3, L.bubbleRadius * pxPerMm * 0.7);
+            
+            const measured = this.getMeasuredPositions(numQ);
+            const anchorMM = measured.anchor || {x:0, y:0};
+
+            // Intentar detectar anchor para overlay preciso
+            const dxMM = anchorMM.x - this.QR_SHEET_MM.x;
+            const dyMM = anchorMM.y - this.QR_SHEET_MM.y;
+            const predAnchorPx = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
+            const realAnchorPx = this.findDarkCentroid(ctx, predAnchorPx.x, predAnchorPx.y, 20 * localPxPerMm, W, H);
+
+            let globalAngle = localAngle;
+            let globalPxPerMm = localPxPerMm;
+
+            if (realAnchorPx) {
+                const distMM = Math.hypot(dxMM, dyMM);
+                const distPX = Math.hypot(realAnchorPx.x - qrCX, realAnchorPx.y - qrCY);
+                globalPxPerMm = distPX / distMM;
+                const thetaMM = Math.atan2(dyMM, dxMM);
+                const thetaPX = Math.atan2(realAnchorPx.y - qrCY, realAnchorPx.x - qrCX);
+                globalAngle = thetaPX - thetaMM;
+                
+                // Dibujar marca donde detectó el anchor
+                ctx.beginPath();
+                ctx.arc(realAnchorPx.x, realAnchorPx.y, 8, 0, Math.PI * 2);
+                ctx.strokeStyle = '#f59e0b'; // ambar
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            const r = Math.max(3, L.bubbleRadius * globalPxPerMm * 0.7);
 
             const overlayPosFn = (q, o, L_) => {
                 const mm = this.bubbleMM(q, o, L_);
-                return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, angle, pxPerMm);
+                return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, globalAngle, globalPxPerMm);
             };
 
             // Color de burbujas: transición suave con estabilidad

@@ -335,14 +335,14 @@
         }
     </style>
 
-    <script src="js/app.js?v=9.0"></script>
-    <script src="js/scanner.js?v=9.0"></script>
-    <script src="js/printer.js?v=9.0"></script>
+    <script src="js/app.js?v=9.1"></script>
+    <script src="js/scanner.js?v=9.1"></script>
+    <script src="js/printer.js?v=9.1"></script>
     <script>
         lucide.createIcons();
         // Registrar Service Worker para PWA
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js?v=9.0')
+            navigator.serviceWorker.register('./sw.js?v=9.1')
                 .then(reg => console.log('SW registrado', reg.scope))
                 .catch(err => console.log('SW error', err));
         }
