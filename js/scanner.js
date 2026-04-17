@@ -415,10 +415,7 @@ const scanner = {
 
     getGridOrigin(L) {
         const innerLeft = 22;
-        const qnumWidth = L.numPx * 2.8 * 0.2646;
-        const gap = 5 * 0.2646; // 1.323
-        const bubbleRadius = L.bubbleRadius;
-        const x = innerLeft + qnumWidth + gap + bubbleRadius;
+        const x = innerLeft; // El offset base X es solo el margen izquierdo del .inner
 
         const innerTop = 22;
         const headerRow = 28;
@@ -438,11 +435,11 @@ const scanner = {
         const col = Math.floor(q / L.rowsPerCol);
         const row = q % L.rowsPerCol;
         
-        const baseX = col * (L.colW + L.colGap) + L.bubbleStartX + opt * L.bubbleSpacing;
+        const bubbleX_inner = col * (L.colW + L.colGap) + L.bubbleStartX + opt * L.bubbleSpacing;
         const origin = this.getGridOrigin(L);
 
         return {
-            x: origin.x + this.GRID_DX_ADJUST + (baseX * this.GRID_SCALE_X),
+            x: origin.x + this.GRID_DX_ADJUST + (bubbleX_inner * this.GRID_SCALE_X),
             y: origin.y + this.GRID_DY_ADJUST + row * (L.rowMM + L.rowGap)
         };
     },
