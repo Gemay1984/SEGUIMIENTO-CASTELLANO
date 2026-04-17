@@ -54,7 +54,7 @@ const scanner = {
     consecutiveStableFrames: 0,
     lastStableQRLocation: null,
     STABLE_THRESHOLD_PX: 8,      // máx movimiento en px para considerar "estable"
-    STABLE_FRAMES_REQUIRED: 22,   // ~1.5s de estabilidad antes de auto-captura
+    STABLE_FRAMES_REQUIRED: 12,   // 12 detecciones reales @ ~8Hz = ~1.5s de estabilidad
     autoCaptureEnabled: true,
 
     // Grading state
@@ -291,7 +291,6 @@ const scanner = {
 
             if (!this.cooldown) {
                 this.detectQR();
-                this.evaluateStability();
                 this.drawOverlay();
 
                 // ── Auto-Captura Inteligente ──
@@ -331,19 +330,10 @@ const scanner = {
         requestAnimationFrame(() => this.loop());
     },
 
-    /** Evalúa si el QR está estable comparando posiciones entre frames. */
-    evaluateStability() {
-        if (!this.qrLocation) {
-            this.consecutiveStableFrames = 0;
-            this.lastStableQRLocation = null;
-            return;
-        }
-
-        const cur = this.qrLocation;
-
+    /** Evalúa si el QR está estable comparando posiciones entre detecciones reales de jsQR. */
+    evaluateStability(newLoc) {
         if (this.lastStableQRLocation) {
-            const prev = this.lastStableQRLocation;
-            const dist = this._qrCornerDistance(prev, cur);
+            const dist = this._qrCornerDistance(this.lastStableQRLocation, newLoc);
 
             if (dist < this.STABLE_THRESHOLD_PX) {
                 this.consecutiveStableFrames++;
@@ -355,12 +345,12 @@ const scanner = {
             this.consecutiveStableFrames = 0;
         }
 
-        // Guardar posición actual para el próximo frame
+        // Guardar posición actual para la próxima detección
         this.lastStableQRLocation = {
-            topLeftCorner:     { ...cur.topLeftCorner },
-            topRightCorner:    { ...cur.topRightCorner },
-            bottomLeftCorner:  { ...cur.bottomLeftCorner },
-            bottomRightCorner: { ...cur.bottomRightCorner }
+            topLeftCorner:     { ...newLoc.topLeftCorner },
+            topRightCorner:    { ...newLoc.topRightCorner },
+            bottomLeftCorner:  { ...newLoc.bottomLeftCorner },
+            bottomRightCorner: { ...newLoc.bottomRightCorner }
         };
     },
 
@@ -377,18 +367,21 @@ const scanner = {
 
     detectQR() {
         const now = Date.now();
-        // Aumentamos los scans a ~8 veces por segundo para que sea instantáneo.
+        // Scans a ~8 veces por segundo
         if (now - this.lastQRCheck < 120) return; 
         this.lastQRCheck = now;
 
         const imgData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
         const qr = jsQR(imgData.data, imgData.width, imgData.height, {
-            inversionAttempts: 'dontInvert'
+            inversionAttempts: 'attemptBoth'
         });
 
         if (qr && qr.data && qr.data.startsWith('ZC|')) {
             this.qrLocation = qr.location;
             this.qrVersion  = qr.version || this._guessVersion(qr.data);
+
+            // Evaluar estabilidad SOLO aquí, con coordenadas frescas
+            this.evaluateStability(qr.location);
 
             if (qr.data !== this.lastQR) {
                 this.lastQR = qr.data;
@@ -396,10 +389,9 @@ const scanner = {
                 this.onQRDetected(qr.data);
             }
         } else {
-            // Si el QR se pierde por >2s, reset estudiante
-            if (now - this.lastQRCheck > 2000 && this.currentStudent && !this.cooldown) {
-                // Solo silencioso, no resetear todavía; seguimos usando la última posición
-            }
+            // QR perdido — resetear estabilidad
+            this.consecutiveStableFrames = 0;
+            this.lastStableQRLocation = null;
         }
     },
 
