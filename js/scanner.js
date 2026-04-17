@@ -86,13 +86,10 @@ const scanner = {
         br: { x: 204.9, y: 268.4 }
     },
     QR_SHEET_MM:   { x: 36, y: 36    },  // centro QR
-    // GRID_SHEET_MM.x ajustado de 22 a 29.5 (+7.5mm) para mover la mira hacia la derecha,
-    // sacándola de encima de los números y poniéndola exactamente sobre las burbujas ABC.
-    GRID_SHEET_MM: { x: 29.5, y: 71.77 },
 
-    // Umbral de detección: modificado para permitir marcas con "X" en bolígrafo
-    BUBBLE_DARK_THRESH: 210,   // brillo máximo para considerar una burbuja marcada (0-255)
-    BUBBLE_MIN_CONTRAST: 0.08, // debe ser ≥8% más oscura que la mediana
+    // Umbral de detección: ajustados para robustez de la marca
+    BUBBLE_DARK_THRESH: 185,
+    BUBBLE_MIN_CONTRAST: 0.12,
 
     // Estado de esquinas detectadas (se actualiza en drawOverlay)
     lastCorners: null,
@@ -387,31 +384,53 @@ const scanner = {
      * ═══════════════════════════════════════════════════════════ */
 
     getLayout(numQ) {
-        const PX     = 0.2646; // mm por CSS px (96 dpi → mm)
-        const cols   = 3;
-        const rowsPerCol = Math.ceil(numQ / cols);
-        const rowMM  = Math.min(10.5, Math.max(5.5, 173 / rowsPerCol));
+        const PX = 0.2646; // mm por CSS px
+        const cols = 3;
+        const perCol = Math.ceil(numQ / 3);
+        const availableMM = 173;
+        const rowMM = Math.min(10.5, Math.max(5.5, availableMM / perCol));
 
         const bubblePx = Math.round(Math.min(22, Math.max(15, rowMM * 2.2)));
-        const fontPx   = Math.round(bubblePx * 0.7);
-        const numPx    = Math.round(fontPx * 1.3);
+        const fontPx = Math.round(bubblePx * 0.7);
+        const numPx = Math.round(fontPx * 1.3);
 
-        const colGap = 24 * PX;  // gap entre columnas (24px CSS)
-        const rowGap = 4  * PX;  // gap entre filas (4px CSS)
-        const innerW = 171.9;    // ancho del .inner en mm
-        const colW   = (innerW - 2 * colGap) / cols;
+        const colGap  = 24 * PX;
+        const rowGap  = 4 * PX;
+        const innerW  = 171.9;
+        const colW    = (innerW - 2 * colGap) / cols;
 
-        const qnumW = numPx * 2.8 * PX; // ancho del span .qnum
-        const gap   = 5 * PX;           // gap del flexbox .qrow
-        const bDiam = bubblePx * PX;    // diámetro de la burbuja
+        const qnumWidth = numPx * 2.8 * PX; 
+        const gap       = 5 * PX;          
+        const bDiam     = bubblePx * PX;   
 
         return {
-            cols, rowsPerCol, rowMM, rowGap,
+            cols, rowsPerCol: perCol, rowMM, rowGap,
             colW, colGap,
-            bubbleStartX: qnumW + gap + bDiam / 2,
+            numPx,
+            bubbleStartX: qnumWidth + gap + bDiam / 2,
             bubbleSpacing: bDiam + gap,
             bubbleRadius: bDiam / 2,
         };
+    },
+
+    getGridOrigin(L) {
+        const innerLeft = 22;
+        const qnumWidth = L.numPx * 2.8 * 0.2646;
+        const gap = 5 * 0.2646; // 1.323
+        const bubbleRadius = L.bubbleRadius;
+        const x = innerLeft + qnumWidth + gap + bubbleRadius;
+
+        const innerTop = 22;
+        const headerRow = 28;
+        const paddingBottom = 6 * 0.2646;  // 1.5876
+        const marginBottom = 6 * 0.2646;   // 1.5876
+        const studentBox = 17;
+        const marginBottom2 = 6 * 0.2646;  // 1.5876
+        const firstRowCenter = L.rowMM / 2;
+        
+        const y = innerTop + headerRow + paddingBottom + marginBottom + studentBox + marginBottom2 + firstRowCenter;
+
+        return { x, y };
     },
 
     /** Posición absoluta en hoja (mm desde TL de la hoja) del centro de una burbuja. */
@@ -420,10 +439,11 @@ const scanner = {
         const row = q % L.rowsPerCol;
         
         const baseX = col * (L.colW + L.colGap) + L.bubbleStartX + opt * L.bubbleSpacing;
+        const origin = this.getGridOrigin(L);
 
         return {
-            x: this.GRID_SHEET_MM.x + this.GRID_DX_ADJUST + (baseX * this.GRID_SCALE_X),
-            y: this.GRID_SHEET_MM.y + this.GRID_DY_ADJUST + row * (L.rowMM + L.rowGap) + L.rowMM / 2
+            x: origin.x + this.GRID_DX_ADJUST + (baseX * this.GRID_SCALE_X),
+            y: origin.y + this.GRID_DY_ADJUST + row * (L.rowMM + L.rowGap)
         };
     },
 
@@ -432,7 +452,7 @@ const scanner = {
         const s  = this.bubbleSheetMM(q, opt, L);
         return {
             x: s.x - this.QR_SHEET_MM.x,
-            y: s.y - this.QR_SHEET_MM.y + this.GRID_DY_ADJUST
+            y: s.y - this.QR_SHEET_MM.y
         };
     },
 
@@ -487,7 +507,7 @@ const scanner = {
                 if (br < 70) { sumX += x0+px; sumY += y0+py; count++; }
             }
         }
-        if (count < 80) return null; // cuadro no encontrado
+        if (count < 40) return null; // cuadro no encontrado
         return { x: sumX/count, y: sumY/count };
     },
 
@@ -554,7 +574,7 @@ const scanner = {
         // Re-detectar QR en la captura para posición exacta
         const imgData = sCtx.getImageData(0, 0, snap.width, snap.height);
         const qr = jsQR(imgData.data, snap.width, snap.height, {
-            inversionAttempts: 'dontInvert'
+            inversionAttempts: 'attemptBoth'
         });
 
         let qrLoc, qrVer;
@@ -615,10 +635,8 @@ const scanner = {
         const numQ  = exam.questions.length;
         const L     = this.getLayout(numQ);
         const OPTS  = ['A','B','C','D','E'];
-        // Radio de muestreo: 70% del radio de la burbuja.
-        // Esto es CLAVE para evitar incluir el grueso borde negro de la burbuja impresa
-        // en el promedio, y enfocarse solo en el centro donde está la marca o la "X".
-        const sampleR = L.bubbleRadius * 0.7 * pxPerMm;
+        // Radio de muestreo: CLAVE evitar incluir el grueso borde negro
+        const sampleR = L.bubbleRadius * 0.55 * pxPerMm;
         const answers    = [];
         const bubbleData = [];
 
