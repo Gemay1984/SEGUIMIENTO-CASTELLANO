@@ -89,6 +89,12 @@ const scanner = {
     _measuredPositions: null,
     _measuredForNumQ: 0,
 
+    // Estado de detección y estabilidad
+    qrLocation: null,
+    anchorLocation: null,
+    lastStableQRLocation: null,
+    lastStableAnchorLocation: null,
+
     // Calibración Avanzada (ajuste fino sobre posiciones medidas)
     GRID_DY_ADJUST: 0,
     GRID_DX_ADJUST: 0,
@@ -317,27 +323,37 @@ const scanner = {
     },
 
     /** Evalúa si el QR está estable comparando posiciones entre detecciones reales de jsQR. */
-    evaluateStability(newLoc) {
-        if (this.lastStableQRLocation) {
-            const dist = this._qrCornerDistance(this.lastStableQRLocation, newLoc);
+    evaluateStability(newQRLoc, newAnchorLoc) {
+        // La estabilidad requiere que AMBOS existan
+        if (newQRLoc && newAnchorLoc && this.lastStableQRLocation && this.lastStableAnchorLocation) {
+            const qrDist = this._qrCornerDistance(this.lastStableQRLocation, newQRLoc);
+            const anchorDist = Math.hypot(this.lastStableAnchorLocation.x - newAnchorLoc.x, this.lastStableAnchorLocation.y - newAnchorLoc.y);
 
-            if (dist < this.STABLE_THRESHOLD_PX) {
+            // Umbral estricto para ambos
+            if (qrDist < this.STABLE_THRESHOLD_PX && anchorDist < this.STABLE_THRESHOLD_PX) {
                 this.consecutiveStableFrames++;
             } else {
-                // Movimiento detectado — resetear
                 this.consecutiveStableFrames = 0;
             }
         } else {
+            // Si falta alguno o es el primer frame, reseteamos estabilidad
             this.consecutiveStableFrames = 0;
         }
 
-        // Guardar posición actual para la próxima detección
-        this.lastStableQRLocation = {
-            topLeftCorner:     { ...newLoc.topLeftCorner },
-            topRightCorner:    { ...newLoc.topRightCorner },
-            bottomLeftCorner:  { ...newLoc.bottomLeftCorner },
-            bottomRightCorner: { ...newLoc.bottomRightCorner }
-        };
+        // Guardar posiciones actuales
+        if (newQRLoc) {
+            this.lastStableQRLocation = {
+                topLeftCorner:     { ...newQRLoc.topLeftCorner },
+                topRightCorner:    { ...newQRLoc.topRightCorner },
+                bottomLeftCorner:  { ...newQRLoc.bottomLeftCorner },
+                bottomRightCorner: { ...newQRLoc.bottomRightCorner }
+            };
+        }
+        if (newAnchorLoc) {
+            this.lastStableAnchorLocation = { ...newAnchorLoc };
+        } else {
+            this.lastStableAnchorLocation = null;
+        }
     },
 
     /** Distancia Euclidiana promedio entre las 4 esquinas del QR de dos frames. */
@@ -366,8 +382,31 @@ const scanner = {
             this.qrLocation = qr.location;
             this.qrVersion  = qr.version || this._guessVersion(qr.data);
 
-            // Evaluar estabilidad SOLO aquí, con coordenadas frescas
-            this.evaluateStability(qr.location);
+            // ── NUEVO: Buscar Anchor inmediatamente para asegurar calibración completa ──
+            const tl = qr.location.topLeftCorner;
+            const br = qr.location.bottomRightCorner;
+            const tr = qr.location.topRightCorner;
+            const bl = qr.location.bottomLeftCorner;
+            
+            const qrCX = (tl.x + br.x) / 2;
+            const qrCY = (tl.y + br.y) / 2;
+            const localPxPerMm = (Math.hypot(tr.x - tl.x, tr.y - tl.y) + Math.hypot(bl.x - tl.x, bl.y - tl.y)) / 2 / this.QR_CONTENT_MM;
+            const localAngle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
+
+            // Predicción del Anchor (asumimos 30 preguntas para la búsqueda inicial de estabilidad)
+            const numQ = this.currentExam ? this.currentExam.questions.length : 30;
+            const measured = this.getMeasuredPositions(numQ);
+            const anchorMM = (measured && measured.anchor) ? measured.anchor : {x: 200, y: 250}; 
+            
+            const dxMM = anchorMM.x - this.QR_SHEET_MM.x;
+            const dyMM = anchorMM.y - this.QR_SHEET_MM.y;
+            const pred = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
+            
+            // Buscar el centroide real (radio de búsqueda de 18mm para evitar bordes de hoja)
+            this.anchorLocation = this.findDarkCentroid(this.ctx, pred.x, pred.y, 18 * localPxPerMm, this.canvas.width, this.canvas.height);
+
+            // Evaluar estabilidad de AMBOS marcadores
+            this.evaluateStability(qr.location, this.anchorLocation);
 
             if (qr.data !== this.lastQR) {
                 this.lastQR = qr.data;
@@ -376,8 +415,11 @@ const scanner = {
             }
         } else {
             // QR perdido — resetear estabilidad
+            this.qrLocation = null;
+            this.anchorLocation = null;
             this.consecutiveStableFrames = 0;
             this.lastStableQRLocation = null;
+            this.lastStableAnchorLocation = null;
         }
     },
 
