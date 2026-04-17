@@ -464,8 +464,8 @@ const scanner = {
 
     /** Posición absoluta en hoja (mm desde TL) usando posiciones DOM medidas. */
     bubbleSheetMM(q, opt, L) {
-        const positions = this.getMeasuredPositions(L.numQ);
-        const pos = positions[q]?.[opt];
+        const measured = this.getMeasuredPositions(L.numQ);
+        const pos = measured.positions[q]?.[opt];
         if (!pos) return { x: 0, y: 0 };
         return {
             x: pos.x + this.GRID_DX_ADJUST,
