@@ -50,6 +50,13 @@ const scanner = {
     qrVersion: 2,
     lastQRCheck: 0,
 
+    // Auto-Captura Inteligente — estabilidad del QR
+    consecutiveStableFrames: 0,
+    lastStableQRLocation: null,
+    STABLE_THRESHOLD_PX: 12,     // máx movimiento en px para considerar "estable"
+    STABLE_FRAMES_REQUIRED: 8,   // frames estables consecutivos para auto-captura
+    autoCaptureEnabled: true,
+
     // Grading state
     currentStudent: null,
     currentExam: null,
@@ -237,6 +244,10 @@ const scanner = {
         this.currentStudent = null;
         this.qrLocation     = null;
         this.lastQR         = null;
+        this.consecutiveStableFrames = 0;
+        this.lastStableQRLocation = null;
+        this.lastCorners = null;
+        this.cornerFrames = 0;
         this.setStatus('📷 Cámara detenida. Presiona "Iniciar Cámara" para continuar.', 'var(--text-muted)');
         document.getElementById('start-scan').disabled = false;
         document.getElementById('stop-scan').disabled  = true;
@@ -268,7 +279,7 @@ const scanner = {
     },
 
     /* ═══════════════════════════════════════════════════════════
-     * LOOP DE FRAMES
+     * LOOP DE FRAMES — Auto-Captura Inteligente
      * ═══════════════════════════════════════════════════════════ */
 
     loop() {
@@ -280,30 +291,87 @@ const scanner = {
 
             if (!this.cooldown) {
                 this.detectQR();
+                this.evaluateStability();
                 this.drawOverlay();
 
-                // ── Auto-Captura ZipGrade ──
-                // Si la homografía detectó 4 esquinas y tenemos los datos listos...
-                if (this.lastCorners && this.currentStudent && this.currentExam) {
-                    this.cornerFrames++;
-                    // Exigimos 3 frames consecutivos (~50ms) para evitar ruido/foto movida
-                    if (this.cornerFrames >= 3) {
-                        this.cooldown = true;
-                        this.cornerFrames = 0;
-                        if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
-                        this.setStatus(`✨ Auto-calificando a ${this.currentStudent.name}…`, '#22c55e');
-                        // Retraso para que el usuario alcance a ver la captura visual 
-                        setTimeout(() => this.gradeSheet(), 300);
-                    }
-                } else {
-                    this.cornerFrames = 0;
+                // ── Auto-Captura Inteligente ──
+                if (this.autoCaptureEnabled &&
+                    this.currentStudent && this.currentExam &&
+                    this.consecutiveStableFrames >= this.STABLE_FRAMES_REQUIRED) {
+
+                    this.cooldown = true;
+                    this.consecutiveStableFrames = 0;
+
+                    // Flash blanco de confirmación
+                    this.ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                    if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+
+                    // Beep agudo de captura
+                    try {
+                        const actx = new (window.AudioContext || window.webkitAudioContext)();
+                        const osc = actx.createOscillator();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(1200, actx.currentTime);
+                        osc.connect(actx.destination);
+                        osc.start();
+                        osc.stop(actx.currentTime + 0.1);
+                    } catch (_) {}
+
+                    this.setStatus(`📸 ¡Capturado! Calificando a ${this.currentStudent.name}…`, '#22c55e');
+                    setTimeout(() => this.gradeSheet(), 200);
                 }
             } else {
-                // Sigue dibujando el overlay sin intentar auto-calificar ni detectar QR de nuevo
+                // Sigue dibujando el overlay sin intentar auto-calificar
                 this.drawOverlay();
             }
         }
         requestAnimationFrame(() => this.loop());
+    },
+
+    /** Evalúa si el QR está estable comparando posiciones entre frames. */
+    evaluateStability() {
+        if (!this.qrLocation) {
+            this.consecutiveStableFrames = 0;
+            this.lastStableQRLocation = null;
+            return;
+        }
+
+        const cur = this.qrLocation;
+
+        if (this.lastStableQRLocation) {
+            const prev = this.lastStableQRLocation;
+            const dist = this._qrCornerDistance(prev, cur);
+
+            if (dist < this.STABLE_THRESHOLD_PX) {
+                this.consecutiveStableFrames++;
+            } else {
+                // Movimiento detectado — resetear
+                this.consecutiveStableFrames = 0;
+            }
+        } else {
+            this.consecutiveStableFrames = 0;
+        }
+
+        // Guardar posición actual para el próximo frame
+        this.lastStableQRLocation = {
+            topLeftCorner:     { ...cur.topLeftCorner },
+            topRightCorner:    { ...cur.topRightCorner },
+            bottomLeftCorner:  { ...cur.bottomLeftCorner },
+            bottomRightCorner: { ...cur.bottomRightCorner }
+        };
+    },
+
+    /** Distancia Euclidiana promedio entre las 4 esquinas del QR de dos frames. */
+    _qrCornerDistance(a, b) {
+        const d = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        return (
+            d(a.topLeftCorner,     b.topLeftCorner) +
+            d(a.topRightCorner,    b.topRightCorner) +
+            d(a.bottomLeftCorner,  b.bottomLeftCorner) +
+            d(a.bottomRightCorner, b.bottomRightCorner)
+        ) / 4;
     },
 
     detectQR() {
@@ -972,17 +1040,27 @@ const scanner = {
         if (this.qrLocation && this.currentStudent && this.currentExam && !this.cooldown) {
             const loc = this.qrLocation;
 
-            // ── Resaltar QR ──
+            // ── Progreso de estabilidad (0.0 a 1.0) ──
+            const progress = Math.min(1, this.consecutiveStableFrames / this.STABLE_FRAMES_REQUIRED);
+            const isStable = progress >= 0.5;
+
+            // Color del recuadro QR: amarillo → verde según estabilidad
+            const qrR = Math.round(250 - progress * 216);  // 250→34
+            const qrG = Math.round(204 + progress * (197 - 204)); // 204→197 (approx verde)
+            const qrB = Math.round(21 + progress * (94 - 21));  // 21→94
+            const qrColor = `rgb(${qrR},${qrG},${qrB})`;
+
+            // ── Resaltar QR con color dinámico ──
             ctx.beginPath();
             ctx.moveTo(loc.topLeftCorner.x,     loc.topLeftCorner.y);
             ctx.lineTo(loc.topRightCorner.x,    loc.topRightCorner.y);
             ctx.lineTo(loc.bottomRightCorner.x, loc.bottomRightCorner.y);
             ctx.lineTo(loc.bottomLeftCorner.x,  loc.bottomLeftCorner.y);
             ctx.closePath();
-            ctx.strokeStyle = '#22c55e';
+            ctx.strokeStyle = qrColor;
             ctx.lineWidth   = 4;
             ctx.stroke();
-            ctx.fillStyle = 'rgba(34,197,94,0.15)';
+            ctx.fillStyle = `rgba(${qrR},${qrG},${qrB},0.15)`;
             ctx.fill();
 
             // ── Proyección de burbujas + detección de esquinas en overlay ──
@@ -998,7 +1076,7 @@ const scanner = {
             const pxPerMm = ((topEdge + lefEdge) / 2) / this.QR_CONTENT_MM;
             const angle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
 
-            // Detectar esquinas para el overlay (misma lógica que en analyzeBubbles)
+            // Detectar esquinas para el overlay
             const detCorners = this.detectAndRefineCorners(ctx, this.canvas, qrCX, qrCY, angle, pxPerMm);
             this.lastCorners = detCorners;
 
@@ -1021,13 +1099,19 @@ const scanner = {
                 };
             }
 
+            // Color de burbujas: transición suave con estabilidad
+            const bubbleAlpha = 0.5 + progress * 0.4;
+            const bubbleColor = isStable
+                ? `rgba(34,197,94,${bubbleAlpha})`    // verde
+                : `rgba(99,230,255,${bubbleAlpha})`;  // cyan
+
             for (let q = 0; q < numQ; q++) {
                 for (let o = 0; o < 5; o++) {
                     const px = overlayPosFn(q, o, L);
                     ctx.beginPath();
                     ctx.arc(px.x, px.y, r, 0, Math.PI * 2);
-                    ctx.strokeStyle = detCorners ? 'rgba(99,255,180,0.8)' : 'rgba(99,230,255,0.7)';
-                    ctx.lineWidth   = 1.5;
+                    ctx.strokeStyle = bubbleColor;
+                    ctx.lineWidth   = isStable ? 2 : 1.5;
                     ctx.stroke();
                 }
             }
@@ -1043,23 +1127,45 @@ const scanner = {
                 });
             }
 
-            // ── Banner inferior: nombre + método ──
+            // ── Barra de progreso de estabilidad (superior) ──
+            if (this.autoCaptureEnabled && progress > 0) {
+                const barH = 6;
+                // Fondo
+                ctx.fillStyle = 'rgba(0,0,0,0.4)';
+                ctx.fillRect(0, 0, W, barH);
+                // Progreso
+                const barColor = isStable ? '#22c55e' : '#facc15';
+                ctx.fillStyle = barColor;
+                ctx.fillRect(0, 0, W * progress, barH);
+            }
+
+            // ── Banner inferior: nombre + estado ──
             const bannerH = Math.round(H * 0.10);
             ctx.fillStyle = 'rgba(0,0,0,0.72)';
             ctx.fillRect(0, H - bannerH, W, bannerH);
 
-            ctx.fillStyle      = '#22c55e';
-            ctx.font           = `bold ${Math.round(bannerH * 0.38)}px sans-serif`;
-            ctx.textAlign      = 'center';
-            ctx.textBaseline   = 'middle';
+            ctx.fillStyle    = isStable ? '#22c55e' : '#facc15';
+            ctx.font         = `bold ${Math.round(bannerH * 0.38)}px sans-serif`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
             ctx.fillText(`✅ ${this.currentStudent.name}`, W / 2, H - bannerH * 0.68);
 
-            ctx.fillStyle = detCorners ? '#99ffcc' : '#facc15';
-            ctx.font      = `${Math.round(bannerH * 0.28)}px sans-serif`;
-            ctx.fillText(
-                detCorners ? '🟩 4 esquinas — TOCA PARA CALIFICAR' : '🟡 Solo QR — TOCA PARA CALIFICAR',
-                W / 2, H - bannerH * 0.28
-            );
+            // Mensaje de estado según progreso
+            let statusMsg;
+            if (progress < 0.3) {
+                statusMsg = '🟡 Mantén quieto para auto-captura…';
+            } else if (progress < 0.7) {
+                statusMsg = '🟠 Enfocando… no muevas';
+            } else if (progress < 1) {
+                statusMsg = '🟢 ¡Casi listo! Mantén…';
+            } else {
+                statusMsg = '📸 ¡CAPTURANDO!';
+            }
+            const hasCorners = detCorners ? ' (4 esquinas ✅)' : '';
+
+            ctx.fillStyle = isStable ? '#99ffcc' : '#fde68a';
+            ctx.font      = `${Math.round(bannerH * 0.26)}px sans-serif`;
+            ctx.fillText(statusMsg + hasCorners, W / 2, H - bannerH * 0.28);
 
         } else {
             // ── Guía de encuadre: busca el QR ──
@@ -1067,7 +1173,6 @@ const scanner = {
             const x = (W - size) / 2;
             const y = (H - size) / 2;
 
-            // Esquinas del recuadro guía (estilo ZipGrade)
             const cornerLen = size * 0.12;
             ctx.strokeStyle = 'rgba(255,255,255,0.85)';
             ctx.lineWidth   = 3;
