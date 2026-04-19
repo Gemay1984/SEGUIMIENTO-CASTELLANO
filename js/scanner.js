@@ -151,12 +151,14 @@ const scanner = {
         const sel = document.getElementById('scan-exam-select');
         if (!sel) return;
         const cur = sel.value;
-        if (exams.list.length === 0) {
+        const list = (window.exams && exams.list) ? exams.list : [];
+        
+        if (list.length === 0) {
             sel.innerHTML = '<option value="">⚠️ No hay exámenes. Créalos en "Exámenes"</option>';
             sel.disabled = true;
         } else {
             sel.innerHTML = '<option value="">(Auto-detect por QR) Selecciona...</option>' +
-                exams.list.map(e =>
+                list.map(e =>
                     `<option value="${e.id}" ${e.id === cur ? 'selected' : ''}>${e.name} · ${e.grade}</option>`
                 ).join('');
             sel.disabled = false;

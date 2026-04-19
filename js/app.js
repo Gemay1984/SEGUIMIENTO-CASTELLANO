@@ -8,7 +8,7 @@ const app = {
         students.load();
         exams.load();
         settings.load();
-        scanner.init();
+        try { scanner.init(); } catch(e) { console.error("Scanner init failed", e); }
         this.updateDashboard();
     },
 
@@ -67,6 +67,9 @@ const app = {
                 });
                 localStorage.setItem('zc_exams', JSON.stringify(exams.list));
                 exams.renderList();
+                if (scanner && typeof scanner.populateExamSelect === 'function') {
+                    scanner.populateExamSelect();
+                }
             } else {
                 app.toast('Atención: La hoja "Examenes" está vacía', true);
             }
