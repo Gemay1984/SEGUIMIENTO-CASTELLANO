@@ -165,7 +165,7 @@ const printer = {
                 }
                 .m-anchor {
                     position: absolute;
-                    width: 6mm; height: 6mm; background: #000;
+                    width: 5mm; height: 5mm; background: #000;
                 }
                 .m-anchor.tl { top: 1mm; left: 1mm; }
                 .m-anchor.tr { top: 1mm; right: 1mm; }
@@ -355,7 +355,7 @@ const printer = {
                 flex: 1;
                 position: relative;
                 border: 3px solid #000;
-                padding: 4mm;
+                padding: 7mm;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
@@ -372,7 +372,7 @@ const printer = {
             /* Marcadores de esquina: cuadro negro en las 4 esquinas de la grilla */
             .anchor-mark {
                 position: absolute;
-                width: 6mm; height: 6mm;
+                width: 5mm; height: 5mm;
                 background: #000 !important;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;

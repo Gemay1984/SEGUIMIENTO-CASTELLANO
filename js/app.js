@@ -8,6 +8,7 @@ const app = {
         students.load();
         exams.load();
         settings.load();
+        scanner.init();
         this.updateDashboard();
     },
 

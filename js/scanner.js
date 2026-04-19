@@ -1230,6 +1230,7 @@ const scanner = {
             ctx.textAlign    = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('Centra el QR (esquina sup. izquierda de la hoja)', W / 2, H - bannerH / 2);
+        }
     },
 
     /* ═══════════════════════════════════════════════════════════
