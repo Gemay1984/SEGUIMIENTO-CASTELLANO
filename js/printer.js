@@ -141,7 +141,7 @@ const printer = {
                 }
                 .m-grid-container {
                     flex: 1; position: relative;
-                    border: 3px solid #000; padding: 4mm;
+                    border: 3px solid #000; padding: 7mm;
                 }
                 .m-grid {
                     display: grid;

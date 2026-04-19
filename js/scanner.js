@@ -54,7 +54,7 @@ const scanner = {
     consecutiveStableFrames: 0,
     lastStableQRLocation: null,
     STABLE_THRESHOLD_PX: 8,      // máx movimiento en px para considerar "estable"
-    STABLE_FRAMES_REQUIRED: 12,   // 12 detecciones reales @ ~8Hz = ~1.5s de estabilidad
+    STABLE_FRAMES_REQUIRED: 20,   // 20 detecciones reales @ ~8Hz = ~2.5s de estabilidad
     autoCaptureEnabled: true,
 
     // Grading state
@@ -341,8 +341,8 @@ const scanner = {
 
             const avgAnchorDist = anchorsCount > 0 ? anchorDistSum / anchorsCount : 999;
 
-            // Umbral estricto
-            if (qrDist < this.STABLE_THRESHOLD_PX && (anchorsCount === 0 || avgAnchorDist < this.STABLE_THRESHOLD_PX)) {
+            // Umbral estricto (requiere mínimo 2 anclajes confirmados)
+            if (qrDist < this.STABLE_THRESHOLD_PX && anchorsCount >= 2 && avgAnchorDist < this.STABLE_THRESHOLD_PX) {
                 this.consecutiveStableFrames++;
             } else {
                 this.consecutiveStableFrames = 0;
