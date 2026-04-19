@@ -288,10 +288,11 @@ const scanner = {
                 this.detectQR();
                 this.drawOverlay();
 
-                // ── Auto-Captura Inteligente ──
+                // ── Auto-Captura Inteligente (Niveles Adaptativos) ──
+                const required = this._stableRequired || this.STABLE_FRAMES_REQUIRED;
                 if (this.autoCaptureEnabled &&
                     this.currentStudent && this.currentExam &&
-                    this.consecutiveStableFrames >= this.STABLE_FRAMES_REQUIRED) {
+                    this.consecutiveStableFrames >= required) {
 
                     this.cooldown = true;
                     this.consecutiveStableFrames = 0;
@@ -326,41 +327,56 @@ const scanner = {
 
     /** Evalúa si el QR y los anclajes están estables. */
     evaluateStability(newQRLoc, newAnchors) {
-        if (newQRLoc && this.lastStableQRLocation) {
-            const qrDist = this._qrCornerDistance(this.lastStableQRLocation, newQRLoc);
-            
-            // Contar cuántos anclajes nuevos coinciden con los anteriores
-            let anchorDistSum = 0;
-            let anchorsCount = 0;
-            ['tl','tr','bl','br'].forEach(k => {
-                if (newAnchors[k] && this.lastStableAnchors[k]) {
-                    anchorDistSum += Math.hypot(this.lastStableAnchors[k].x - newAnchors[k].x, this.lastStableAnchors[k].y - newAnchors[k].y);
-                    anchorsCount++;
-                }
-            });
-
-            const avgAnchorDist = anchorsCount > 0 ? anchorDistSum / anchorsCount : 999;
-
-            // Umbral estricto (requiere mínimo 2 anclajes confirmados)
-            if (qrDist < this.STABLE_THRESHOLD_PX && anchorsCount >= 2 && avgAnchorDist < this.STABLE_THRESHOLD_PX) {
-                this.consecutiveStableFrames++;
-            } else {
-                this.consecutiveStableFrames = 0;
-            }
-        } else {
+        if (!newQRLoc || !this.lastStableQRLocation) {
             this.consecutiveStableFrames = 0;
+            if (newQRLoc) this.lastStableQRLocation = this._copyQRLoc(newQRLoc);
+            this.lastStableAnchors = { ...newAnchors };
+            return;
         }
 
-        // Guardar posiciones actuales
-        if (newQRLoc) {
-            this.lastStableQRLocation = {
-                topLeftCorner:     { ...newQRLoc.topLeftCorner },
-                topRightCorner:    { ...newQRLoc.topRightCorner },
-                bottomLeftCorner:  { ...newQRLoc.bottomLeftCorner },
-                bottomRightCorner: { ...newQRLoc.bottomRightCorner }
-            };
+        const qrDist = this._qrCornerDistance(this.lastStableQRLocation, newQRLoc);
+
+        let anchorsCount = 0;
+        let anchorDistSum = 0;
+        ['tl','tr','bl','br'].forEach(k => {
+            if (newAnchors[k] && this.lastStableAnchors[k]) {
+                anchorDistSum += Math.hypot(
+                    this.lastStableAnchors[k].x - newAnchors[k].x,
+                    this.lastStableAnchors[k].y - newAnchors[k].y
+                );
+                anchorsCount++;
+            }
+        });
+        const avgAnchorDist = anchorsCount > 0 ? anchorDistSum / anchorsCount : 999;
+
+        // NIVEL 1: 4 anclajes → muy rápido (12 frames = 1.5s)
+        // NIVEL 2: 2-3 anclajes → normal (18 frames = 2.25s)  
+        // NIVEL 3: 0-1 anclajes → solo QR, más lento (28 frames = 3.5s)
+        const qrStable = qrDist < this.STABLE_THRESHOLD_PX;
+        const anchorsStable = anchorsCount === 0 || avgAnchorDist < this.STABLE_THRESHOLD_PX;
+
+        if (qrStable && anchorsStable) {
+            this.consecutiveStableFrames++;
+        } else {
+            this.consecutiveStableFrames = Math.max(0, this.consecutiveStableFrames - 2); // decae suavemente
         }
+
+        // Límite requerido según anclajes encontrados
+        if (anchorsCount >= 4)      this._stableRequired = 12;
+        else if (anchorsCount >= 2) this._stableRequired = 18;
+        else                        this._stableRequired = 28;
+
+        if (newQRLoc) this.lastStableQRLocation = this._copyQRLoc(newQRLoc);
         this.lastStableAnchors = { ...newAnchors };
+    },
+
+    _copyQRLoc(loc) {
+        return {
+            topLeftCorner:     { ...loc.topLeftCorner },
+            topRightCorner:    { ...loc.topRightCorner },
+            bottomLeftCorner:  { ...loc.bottomLeftCorner },
+            bottomRightCorner: { ...loc.bottomRightCorner }
+        };
     },
 
     /** Distancia Euclidiana promedio entre las 4 esquinas del QR de dos frames. */
@@ -411,8 +427,8 @@ const scanner = {
                     const dxMM = am.x - this.QR_SHEET_MM.x;
                     const dyMM = am.y - this.QR_SHEET_MM.y;
                     const pred = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
-                    // Búsqueda local de los cuadros negros (radio generoso para compensar distorsión)
-                    this.anchorLocations[key] = this.findDarkCentroid(this.ctx, pred.x, pred.y, 22 * localPxPerMm, this.canvas.width, this.canvas.height);
+                    // Búsqueda local de los cuadros negros (radio 28mm para tolerar más distorsión de perspectiva)
+                    this.anchorLocations[key] = this.findDarkCentroid(this.ctx, pred.x, pred.y, 28 * localPxPerMm, this.canvas.width, this.canvas.height);
                 });
             }
 
@@ -567,7 +583,7 @@ const scanner = {
                 }
             }
         }
-        if (count < 40) return null; // cuadro oscuro no detectado
+        if (count < 20) return null; // más permisivo con papel en ángulo o luz variable
         return { x: sumX/count, y: sumY/count };
     },
 
@@ -1139,6 +1155,9 @@ const scanner = {
                 };
             }
 
+            const required = this._stableRequired || this.STABLE_FRAMES_REQUIRED;
+            const progress = Math.min(1, this.consecutiveStableFrames / required);
+
             const r = Math.max(3, L.bubbleRadius * currentGlobalPxPerMm * 0.7);
 
             // Color de burbujas: transición suave con estabilidad
@@ -1160,7 +1179,7 @@ const scanner = {
 
             // ── Barra de progreso de estabilidad (superior) ──
             if (this.autoCaptureEnabled && progress > 0) {
-                const barH = 6;
+                const barH = 10;
                 // Fondo
                 ctx.fillStyle = 'rgba(0,0,0,0.4)';
                 ctx.fillRect(0, 0, W, barH);
@@ -1168,6 +1187,26 @@ const scanner = {
                 const barColor = isStable ? '#22c55e' : '#facc15';
                 ctx.fillStyle = barColor;
                 ctx.fillRect(0, 0, W * progress, barH);
+            }
+
+            // ── Botón TAP TO CAPTURE visible siempre ──
+            if (progress < 1 && this.currentStudent) {
+                const btnW = W * 0.55;
+                const btnH = Math.round(H * 0.065);
+                const btnX = (W - btnW) / 2;
+                const btnY = H * 0.42;
+                
+                ctx.fillStyle = 'rgba(99,102,241,0.85)';
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(btnX, btnY, btnW, btnH, 12);
+                else ctx.rect(btnX, btnY, btnW, btnH);
+                ctx.fill();
+                
+                ctx.fillStyle = '#fff';
+                ctx.font = `bold ${Math.round(btnH * 0.45)}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('📸 TOCA PARA CAPTURAR', W / 2, btnY + btnH / 2);
             }
 
             // ── Banner inferior: nombre + estado ──
@@ -1193,11 +1232,12 @@ const scanner = {
                 statusMsg = '📸 ¡CAPTURANDO!';
             }
             
-            const hasCorners = (foundKeys.length === 4) ? ' (4 esquinas ✅)' : ` (${foundKeys.length} marcas)`;
+            const modeStr = foundKeys.length >= 4 ? '🟩 4 puntos' : 
+                            foundKeys.length >= 2 ? '🟡 2 puntos' : '🔵 Solo QR';
 
             ctx.fillStyle = isStable ? '#99ffcc' : '#fde68a';
             ctx.font      = `${Math.round(bannerH * 0.26)}px sans-serif`;
-            ctx.fillText(statusMsg + hasCorners, W / 2, H - bannerH * 0.28);
+            ctx.fillText(statusMsg + ' (' + modeStr + ')', W / 2, H - bannerH * 0.28);
 
         } else {
             // ── Guía de encuadre: busca el QR ──
