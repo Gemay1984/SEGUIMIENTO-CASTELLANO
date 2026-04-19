@@ -8,7 +8,9 @@ const app = {
         students.load();
         exams.load();
         settings.load();
-        try { scanner.init(); } catch(e) { console.error("Scanner init failed", e); }
+        try { 
+            if (typeof scanner !== 'undefined') scanner.init(); 
+        } catch(e) { console.error("Scanner init failed", e); }
         this.updateDashboard();
     },
 
@@ -67,7 +69,7 @@ const app = {
                 });
                 localStorage.setItem('zc_exams', JSON.stringify(exams.list));
                 exams.renderList();
-                if (scanner && typeof scanner.populateExamSelect === 'function') {
+                if (typeof scanner !== 'undefined' && typeof scanner.populateExamSelect === 'function') {
                     scanner.populateExamSelect();
                 }
             } else {

@@ -151,7 +151,7 @@ const scanner = {
         const sel = document.getElementById('scan-exam-select');
         if (!sel) return;
         const cur = sel.value;
-        const list = (window.exams && exams.list) ? exams.list : [];
+        const list = (typeof exams !== 'undefined' && exams.list) ? exams.list : [];
         
         if (list.length === 0) {
             sel.innerHTML = '<option value="">⚠️ No hay exámenes. Créalos en "Exámenes"</option>';
