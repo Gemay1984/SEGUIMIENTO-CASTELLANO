@@ -91,9 +91,9 @@ const scanner = {
 
     // Estado de detección y estabilidad
     qrLocation: null,
-    anchorLocation: null,
+    anchorLocations: { tl: null, tr: null, bl: null, br: null },
     lastStableQRLocation: null,
-    lastStableAnchorLocation: null,
+    lastStableAnchors: { tl: null, tr: null, bl: null, br: null },
 
     // Calibración Avanzada (ajuste fino sobre posiciones medidas)
     GRID_DY_ADJUST: 0,
@@ -322,21 +322,30 @@ const scanner = {
         requestAnimationFrame(() => this.loop());
     },
 
-    /** Evalúa si el QR está estable comparando posiciones entre detecciones reales de jsQR. */
-    evaluateStability(newQRLoc, newAnchorLoc) {
-        // La estabilidad requiere que AMBOS existan
-        if (newQRLoc && newAnchorLoc && this.lastStableQRLocation && this.lastStableAnchorLocation) {
+    /** Evalúa si el QR y los anclajes están estables. */
+    evaluateStability(newQRLoc, newAnchors) {
+        if (newQRLoc && this.lastStableQRLocation) {
             const qrDist = this._qrCornerDistance(this.lastStableQRLocation, newQRLoc);
-            const anchorDist = Math.hypot(this.lastStableAnchorLocation.x - newAnchorLoc.x, this.lastStableAnchorLocation.y - newAnchorLoc.y);
+            
+            // Contar cuántos anclajes nuevos coinciden con los anteriores
+            let anchorDistSum = 0;
+            let anchorsCount = 0;
+            ['tl','tr','bl','br'].forEach(k => {
+                if (newAnchors[k] && this.lastStableAnchors[k]) {
+                    anchorDistSum += Math.hypot(this.lastStableAnchors[k].x - newAnchors[k].x, this.lastStableAnchors[k].y - newAnchors[k].y);
+                    anchorsCount++;
+                }
+            });
 
-            // Umbral estricto para ambos
-            if (qrDist < this.STABLE_THRESHOLD_PX && anchorDist < this.STABLE_THRESHOLD_PX) {
+            const avgAnchorDist = anchorsCount > 0 ? anchorDistSum / anchorsCount : 999;
+
+            // Umbral estricto
+            if (qrDist < this.STABLE_THRESHOLD_PX && (anchorsCount === 0 || avgAnchorDist < this.STABLE_THRESHOLD_PX)) {
                 this.consecutiveStableFrames++;
             } else {
                 this.consecutiveStableFrames = 0;
             }
         } else {
-            // Si falta alguno o es el primer frame, reseteamos estabilidad
             this.consecutiveStableFrames = 0;
         }
 
@@ -349,11 +358,7 @@ const scanner = {
                 bottomRightCorner: { ...newQRLoc.bottomRightCorner }
             };
         }
-        if (newAnchorLoc) {
-            this.lastStableAnchorLocation = { ...newAnchorLoc };
-        } else {
-            this.lastStableAnchorLocation = null;
-        }
+        this.lastStableAnchors = { ...newAnchors };
     },
 
     /** Distancia Euclidiana promedio entre las 4 esquinas del QR de dos frames. */
@@ -382,7 +387,7 @@ const scanner = {
             this.qrLocation = qr.location;
             this.qrVersion  = qr.version || this._guessVersion(qr.data);
 
-            // ── NUEVO: Buscar Anchor inmediatamente para asegurar calibración completa ──
+            // ── NUEVO: Buscar 4 Anchors usando el QR para predecir su posición ──
             const tl = qr.location.topLeftCorner;
             const br = qr.location.bottomRightCorner;
             const tr = qr.location.topRightCorner;
@@ -393,20 +398,24 @@ const scanner = {
             const localPxPerMm = (Math.hypot(tr.x - tl.x, tr.y - tl.y) + Math.hypot(bl.x - tl.x, bl.y - tl.y)) / 2 / this.QR_CONTENT_MM;
             const localAngle   = Math.atan2(tr.y - tl.y, tr.x - tl.x);
 
-            // Predicción del Anchor (asumimos 30 preguntas para la búsqueda inicial de estabilidad)
             const numQ = this.currentExam ? this.currentExam.questions.length : 30;
             const measured = this.getMeasuredPositions(numQ);
-            const anchorMM = (measured && measured.anchor) ? measured.anchor : {x: 200, y: 250}; 
             
-            const dxMM = anchorMM.x - this.QR_SHEET_MM.x;
-            const dyMM = anchorMM.y - this.QR_SHEET_MM.y;
-            const pred = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
+            this.anchorLocations = { tl: null, tr: null, bl: null, br: null };
             
-            // Buscar el centroide real (radio de búsqueda de 18mm para evitar bordes de hoja)
-            this.anchorLocation = this.findDarkCentroid(this.ctx, pred.x, pred.y, 18 * localPxPerMm, this.canvas.width, this.canvas.height);
+            if (measured && measured.anchors) {
+                ['tl','tr','bl','br'].forEach(key => {
+                    const am = measured.anchors[key];
+                    const dxMM = am.x - this.QR_SHEET_MM.x;
+                    const dyMM = am.y - this.QR_SHEET_MM.y;
+                    const pred = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
+                    // Búsqueda local de los cuadros negros (radio generoso para compensar distorsión)
+                    this.anchorLocations[key] = this.findDarkCentroid(this.ctx, pred.x, pred.y, 22 * localPxPerMm, this.canvas.width, this.canvas.height);
+                });
+            }
 
-            // Evaluar estabilidad de AMBOS marcadores
-            this.evaluateStability(qr.location, this.anchorLocation);
+            // Evaluar estabilidad
+            this.evaluateStability(qr.location, this.anchorLocations);
 
             if (qr.data !== this.lastQR) {
                 this.lastQR = qr.data;
@@ -416,10 +425,10 @@ const scanner = {
         } else {
             // QR perdido — resetear estabilidad
             this.qrLocation = null;
-            this.anchorLocation = null;
+            this.anchorLocations = { tl: null, tr: null, bl: null, br: null };
             this.consecutiveStableFrames = 0;
             this.lastStableQRLocation = null;
-            this.lastStableAnchorLocation = null;
+            this.lastStableAnchors = { tl: null, tr: null, bl: null, br: null };
         }
     },
 
@@ -604,9 +613,9 @@ const scanner = {
 
     analyzeBubbles(ctx, canvas, exam, qrLoc) {
         const tl = qrLoc.topLeftCorner;
+        const br = qrLoc.bottomRightCorner;
         const tr = qrLoc.topRightCorner;
         const bl = qrLoc.bottomLeftCorner;
-        const br = qrLoc.bottomRightCorner;
 
         const qrCX    = (tl.x + br.x) / 2;
         const qrCY    = (tl.y + br.y) / 2;
@@ -621,55 +630,79 @@ const scanner = {
         const OPTS  = ['A','B','C','D','E'];
 
         const measured = this.getMeasuredPositions(numQ);
-        const anchorMM = measured.anchor || {x:0, y:0};
+        const mAnchors = measured.anchors || {};
 
-        // ── DIAGONAL: QR -> ANCHOR ──
-        // 1. Predecir ubicación del anchor en píxeles usando solo el QR
-        const dxMM = anchorMM.x - this.QR_SHEET_MM.x;
-        const dyMM = anchorMM.y - this.QR_SHEET_MM.y;
-        const predAnchorPx = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
-        
-        // 2. Buscar el centroide negro real cerca de la predicción (radio grande, ~25mm)
-        const searchRadio = 25 * localPxPerMm;
-        const realAnchorPx = this.findDarkCentroid(ctx, predAnchorPx.x, predAnchorPx.y, searchRadio, canvas.width, canvas.height);
+        // ── DETECCIÓN DE ANCLAJES ──
+        const foundAnchors = [];
+        const srcPoints = [];
+        const dstPoints = [];
 
-        let globalAngle = localAngle;
+        ['tl','tr','bl','br'].forEach(key => {
+            const am = mAnchors[key];
+            if (!am) return;
+            const dxMM = am.x - this.QR_SHEET_MM.x;
+            const dyMM = am.y - this.QR_SHEET_MM.y;
+            const pred = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
+            const real = this.findDarkCentroid(ctx, pred.x, pred.y, 22 * localPxPerMm, canvas.width, canvas.height);
+            
+            if (real) {
+                foundAnchors.push(key);
+                srcPoints.push({ x: am.x, y: am.y });
+                dstPoints.push({ x: real.x, y: real.y });
+            }
+        });
+
+        let bubblePosFn;
         let globalPxPerMm = localPxPerMm;
 
-        if (realAnchorPx) {
-            // Recálculo global basado en la geometría de los 2 puntos distantes
-            const distMM = Math.hypot(dxMM, dyMM);
-            const distPX = Math.hypot(realAnchorPx.x - qrCX, realAnchorPx.y - qrCY);
-            
+        if (foundAnchors.length === 4) {
+            // OPCIÓN A: Perspectiva completa (Homografía)
+            const h = this.getHomography(srcPoints, dstPoints);
+            bubblePosFn = (q, o, L_) => {
+                const mm = this.bubbleSheetMM(q, o, L_);
+                return this.applyHomography(h, mm.x, mm.y);
+            };
+            this._lastMethod = 'Perspectiva (4 esquinas) 🚀';
+        } else if (foundAnchors.length >= 2) {
+            // OPCIÓN B: Afín (basada en los 2 puntos más lejanos encontrados)
+            let p1Idx = 0, p2Idx = 1, maxDist = 0;
+            for (let i = 0; i < srcPoints.length; i++) {
+                for (let j = i + 1; j < srcPoints.length; j++) {
+                    const d = Math.hypot(srcPoints[i].x - srcPoints[j].x, srcPoints[i].y - srcPoints[j].y);
+                    if (d > maxDist) { maxDist = d; p1Idx = i; p2Idx = j; }
+                }
+            }
+            const s1 = srcPoints[p1Idx], s2 = srcPoints[p2Idx];
+            const d1 = dstPoints[p1Idx], d2 = dstPoints[p2Idx];
+
+            const distMM = Math.hypot(s2.x - s1.x, s2.y - s1.y);
+            const distPX = Math.hypot(d2.x - d1.x, d2.y - d1.y);
             globalPxPerMm = distPX / distMM;
-            
-            const thetaMM = Math.atan2(dyMM, dxMM);
-            const thetaPX = Math.atan2(realAnchorPx.y - qrCY, realAnchorPx.x - qrCX);
-            globalAngle = thetaPX - thetaMM;
-            
-            this._lastMethod = 'Diagonal (QR + Anchor) ✅';
-            console.log(`[Scanner] Anchor detectado. Offset corr: ${(globalAngle - localAngle).toFixed(3)} rad`);
+
+            const angleMM = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+            const anglePX = Math.atan2(d2.y - d1.y, d2.x - d1.x);
+            const gAngle = anglePX - angleMM;
+
+            bubblePosFn = (q, o, L_) => {
+                const mm = this.bubbleSheetMM(q, o, L_);
+                const dx = mm.x - s1.x;
+                const dy = mm.y - s1.y;
+                return {
+                    x: d1.x + (dx * Math.cos(gAngle) - dy * Math.sin(gAngle)) * globalPxPerMm,
+                    y: d1.y + (dx * Math.sin(gAngle) + dy * Math.cos(gAngle)) * globalPxPerMm
+                };
+            };
+            this._lastMethod = `Afín (${foundAnchors.length} puntos) ⚖️`;
         } else {
+            // FALLBACK: Solo QR
+            bubblePosFn = (q, o, L_) => {
+                const mm = this.bubbleMM(q, o, L_);
+                return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, localAngle, localPxPerMm);
+            };
             this._lastMethod = 'Solo QR (Fallback) ⚠️';
-            console.warn('[Scanner] Anchor mark NO encontrado. Usando solo QR. La precisión caerá.');
-            app.toast('⚠️ Marca de anclaje no vista, la nota puede ser imprecisa.', true);
+            app.toast('⚠️ No se detectaron suficientes marcas; precisión reducida.', true);
         }
 
-        const bubblePosFn = (q, o, L_) => {
-            const mm = this.bubbleMM(q, o, L_);
-            // Usa el ángulo y escala *Globales*
-            return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, globalAngle, globalPxPerMm);
-        };
-
-        // Log de verificación: posiciones medidas desde el DOM
-        const posA1 = this.bubbleSheetMM(0, 0, L);
-        const posE1 = this.bubbleSheetMM(0, 4, L);
-        console.table([
-            { punto: 'QR Center', xMM: this.QR_SHEET_MM.x.toFixed(1), yMM: this.QR_SHEET_MM.y.toFixed(1) },
-            { punto: 'A1',  xMM: posA1.x.toFixed(1),  yMM: posA1.y.toFixed(1) },
-            { punto: 'E1',  xMM: posE1.x.toFixed(1),  yMM: posE1.y.toFixed(1) },
-            { punto: 'Anchor', xMM: anchorMM.x.toFixed(1), yMM: anchorMM.y.toFixed(1) },
-        ]);
         console.log('[Scanner] Método calibración:', this._lastMethod);
 
         // Radio de muestreo
@@ -1033,39 +1066,78 @@ const scanner = {
             const L    = this.getLayout(numQ);
             
             const measured = this.getMeasuredPositions(numQ);
-            const anchorMM = measured.anchor || {x:0, y:0};
+            const mAnchors = measured.anchors || {};
 
-            // Intentar detectar anchor para overlay preciso
-            const dxMM = anchorMM.x - this.QR_SHEET_MM.x;
-            const dyMM = anchorMM.y - this.QR_SHEET_MM.y;
-            const predAnchorPx = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
-            const realAnchorPx = this.findDarkCentroid(ctx, predAnchorPx.x, predAnchorPx.y, 20 * localPxPerMm, W, H);
+            // Detección de anclajes para el overlay
+            const srcPoints = [];
+            const dstPoints = [];
+            const foundKeys = [];
 
-            let globalAngle = localAngle;
-            let globalPxPerMm = localPxPerMm;
-
-            if (realAnchorPx) {
-                const distMM = Math.hypot(dxMM, dyMM);
-                const distPX = Math.hypot(realAnchorPx.x - qrCX, realAnchorPx.y - qrCY);
-                globalPxPerMm = distPX / distMM;
-                const thetaMM = Math.atan2(dyMM, dxMM);
-                const thetaPX = Math.atan2(realAnchorPx.y - qrCY, realAnchorPx.x - qrCX);
-                globalAngle = thetaPX - thetaMM;
+            ['tl','tr','bl','br'].forEach(key => {
+                const am = mAnchors[key];
+                if (!am) return;
+                const dxMM = am.x - this.QR_SHEET_MM.x;
+                const dyMM = am.y - this.QR_SHEET_MM.y;
+                const pred = this.mmToPixel(dxMM, dyMM, qrCX, qrCY, localAngle, localPxPerMm);
+                const real = this.findDarkCentroid(ctx, pred.x, pred.y, 22 * localPxPerMm, W, H);
                 
-                // Dibujar marca donde detectó el anchor
-                ctx.beginPath();
-                ctx.arc(realAnchorPx.x, realAnchorPx.y, 8, 0, Math.PI * 2);
-                ctx.strokeStyle = '#f59e0b'; // ambar
-                ctx.lineWidth = 3;
-                ctx.stroke();
+                if (real) {
+                    foundKeys.push(key);
+                    srcPoints.push({ x: am.x, y: am.y });
+                    dstPoints.push({ x: real.x, y: real.y });
+
+                    // Dibujar marca donde detectó cada anchor
+                    ctx.beginPath();
+                    ctx.arc(real.x, real.y, 6, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#f59e0b'; // ambar
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+                }
+            });
+
+            let overlayPosFn;
+            let currentGlobalPxPerMm = localPxPerMm;
+
+            if (foundKeys.length === 4) {
+                const h = this.getHomography(srcPoints, dstPoints);
+                overlayPosFn = (q, o, L_) => {
+                    const mm = this.bubbleSheetMM(q, o, L_);
+                    return this.applyHomography(h, mm.x, mm.y);
+                };
+            } else if (foundKeys.length >= 2) {
+                let p1Idx = 0, p2Idx = 1, maxDist = 0;
+                for (let i = 0; i < srcPoints.length; i++) {
+                    for (let j = i + 1; j < srcPoints.length; j++) {
+                        const d = Math.hypot(srcPoints[i].x - srcPoints[j].x, srcPoints[i].y - srcPoints[j].y);
+                        if (d > maxDist) { maxDist = d; p1Idx = i; p2Idx = j; }
+                    }
+                }
+                const s1 = srcPoints[p1Idx], s2 = srcPoints[p2Idx];
+                const d1 = dstPoints[p1Idx], d2 = dstPoints[p2Idx];
+                const distMM = Math.hypot(s2.x - s1.x, s2.y - s1.y);
+                const distPX = Math.hypot(d2.x - d1.x, d2.y - d1.y);
+                currentGlobalPxPerMm = distPX / distMM;
+                const angleMM = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+                const anglePX = Math.atan2(d2.y - d1.y, d2.x - d1.x);
+                const gAngle = anglePX - angleMM;
+
+                overlayPosFn = (q, o, L_) => {
+                    const mm = this.bubbleSheetMM(q, o, L_);
+                    const dx = mm.x - s1.x;
+                    const dy = mm.y - s1.y;
+                    return {
+                        x: d1.x + (dx * Math.cos(gAngle) - dy * Math.sin(gAngle)) * currentGlobalPxPerMm,
+                        y: d1.y + (dx * Math.sin(gAngle) + dy * Math.cos(gAngle)) * currentGlobalPxPerMm
+                    };
+                };
+            } else {
+                overlayPosFn = (q, o, L_) => {
+                    const mm = this.bubbleMM(q, o, L_);
+                    return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, localAngle, localPxPerMm);
+                };
             }
 
-            const r = Math.max(3, L.bubbleRadius * globalPxPerMm * 0.7);
-
-            const overlayPosFn = (q, o, L_) => {
-                const mm = this.bubbleMM(q, o, L_);
-                return this.mmToPixel(mm.x, mm.y, qrCX, qrCY, globalAngle, globalPxPerMm);
-            };
+            const r = Math.max(3, L.bubbleRadius * currentGlobalPxPerMm * 0.7);
 
             // Color de burbujas: transición suave con estabilidad
             const bubbleAlpha = 0.5 + progress * 0.4;
@@ -1118,7 +1190,8 @@ const scanner = {
             } else {
                 statusMsg = '📸 ¡CAPTURANDO!';
             }
-            const hasCorners = detCorners ? ' (4 esquinas ✅)' : '';
+            
+            const hasCorners = (foundKeys.length === 4) ? ' (4 esquinas ✅)' : ` (${foundKeys.length} marcas)`;
 
             ctx.fillStyle = isStable ? '#99ffcc' : '#fde68a';
             ctx.font      = `${Math.round(bannerH * 0.26)}px sans-serif`;
@@ -1157,6 +1230,53 @@ const scanner = {
             ctx.textAlign    = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('Centra el QR (esquina sup. izquierda de la hoja)', W / 2, H - bannerH / 2);
+    },
+
+    /* ═══════════════════════════════════════════════════════════
+     * MATEMÁTICAS — Homografía / Perspectiva
+     * ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Calcula la matriz de homografía 3x3 para mapear 4 puntos de origen a 4 de destino.
+     * Basado en la implementación estándar de perspectiva.
+     */
+    getHomography(src, dst) {
+        const matrix = Array(8).fill(0).map(() => Array(9).fill(0));
+        for (let i = 0; i < 4; i++) {
+            const { x, y } = src[i];
+            const { x: u, y: v } = dst[i];
+            matrix[2 * i]     = [x, y, 1, 0, 0, 0, -u * x, -u * y, u];
+            matrix[2 * i + 1] = [0, 0, 0, x, y, 1, -v * x, -v * y, v];
         }
+
+        // Resolución por eliminación Gaussiana
+        for (let i = 0; i < 8; i++) {
+            let pivot = i;
+            for (let j = i + 1; j < 8; j++) {
+                if (Math.abs(matrix[j][i]) > Math.abs(matrix[pivot][i])) pivot = j;
+            }
+            [matrix[i], matrix[pivot]] = [matrix[pivot], matrix[i]];
+            
+            const div = matrix[i][i];
+            if (Math.abs(div) < 1e-10) continue;
+            for (let j = i; j < 9; j++) matrix[i][j] /= div;
+
+            for (let j = 0; j < 8; j++) {
+                if (j !== i) {
+                    const mult = matrix[j][i];
+                    for (let k = i; k < 9; k++) matrix[j][k] -= mult * matrix[i][k];
+                }
+            }
+        }
+        const h = matrix.map(row => row[8]);
+        return [...h, 1]; // Añadimos h22 = 1
+    },
+
+    applyHomography(h, x, y) {
+        const w = h[6] * x + h[7] * y + h[8];
+        return {
+            x: (h[0] * x + h[1] * y + h[2]) / w,
+            y: (h[3] * x + h[4] * y + h[5]) / w
+        };
     }
 };

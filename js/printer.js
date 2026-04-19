@@ -77,13 +77,16 @@ const printer = {
                     </div>
                 </div>
 
-                <!-- ══ GRILLA DE BURBUJAS con borde y marca de anclaje ══ -->
+                <!-- ══ GRILLA DE BURBUJAS con borde y marcadores de esquina ══ -->
                 <div class="grid-container">
                     <div class="bubbles-grid">
                         ${this.generateColumns(exam.questions.length)}
                     </div>
-                    <!-- Marca de anclaje: esquina inferior-derecha de la grilla -->
-                    <div class="anchor-mark"></div>
+                    <!-- Marcadores de esquina para calibración de perspectiva -->
+                    <div class="anchor-mark tl"></div>
+                    <div class="anchor-mark tr"></div>
+                    <div class="anchor-mark bl"></div>
+                    <div class="anchor-mark br"></div>
                 </div>
 
                 <div class="footer">
@@ -95,12 +98,12 @@ const printer = {
     },
 
     /**
-     * OPCIÓN C: Medir posiciones REALES de las burbujas + anclaje desde el DOM.
+     * OPCIÓN C: Medir posiciones REALES de las burbujas + 4 anclajes desde el DOM.
      * Crea un div oculto con los mismos estilos CSS que la hoja impresa,
      * renderiza la grilla de burbujas, y usa getBoundingClientRect() para
      * obtener las coordenadas exactas en mm de cada burbuja.
      * 
-     * Retorna: { positions: [q][opt] = {x, y}, anchor: {x, y} }
+     * Retorna: { positions: [q][opt] = {x, y}, anchors: {tl, tr, bl, br} }
      */
     measureBubblePositions(numQ) {
         const perCol = Math.ceil(numQ / 3);
@@ -161,9 +164,13 @@ const printer = {
                     font-weight: 600; flex-shrink: 0; font-size: ${fontPx}px;
                 }
                 .m-anchor {
-                    position: absolute; bottom: 2mm; right: 2mm;
-                    width: 8mm; height: 8mm; background: #000;
+                    position: absolute;
+                    width: 6mm; height: 6mm; background: #000;
                 }
+                .m-anchor.tl { top: 1mm; left: 1mm; }
+                .m-anchor.tr { top: 1mm; right: 1mm; }
+                .m-anchor.bl { bottom: 1mm; left: 1mm; }
+                .m-anchor.br { bottom: 1mm; right: 1mm; }
             </style>
             <div class="m-sheet">
                 <div class="m-inner">
@@ -171,7 +178,10 @@ const printer = {
                     <div class="m-student"></div>
                     <div class="m-grid-container">
                         <div class="m-grid">${gridHTML}</div>
-                        <div class="m-anchor"></div>
+                        <div class="m-anchor tl"></div>
+                        <div class="m-anchor tr"></div>
+                        <div class="m-anchor bl"></div>
+                        <div class="m-anchor br"></div>
                     </div>
                 </div>
             </div>
@@ -196,13 +206,16 @@ const printer = {
             });
         });
 
-        // Medir marca de anclaje
-        const anchorEl = container.querySelector('.m-anchor');
-        const aRect = anchorEl.getBoundingClientRect();
-        const anchor = {
-            x: (aRect.left + aRect.width / 2 - sheetRect.left) * pxToMmX,
-            y: (aRect.top  + aRect.height / 2 - sheetRect.top)  * pxToMmY
-        };
+        // Medir marcas de anclaje
+        const anchors = {};
+        ['tl','tr','bl','br'].forEach(key => {
+            const el = container.querySelector('.m-anchor.' + key);
+            const r = el.getBoundingClientRect();
+            anchors[key] = {
+                x: (r.left + r.width / 2 - sheetRect.left) * pxToMmX,
+                y: (r.top  + r.height / 2 - sheetRect.top)  * pxToMmY
+            };
+        });
 
         document.body.removeChild(container);
 
@@ -221,10 +234,8 @@ const printer = {
             }
         }
 
-        console.log('[Printer] Posiciones medidas para', numQ, 'preguntas.');
-        console.log('  A1:', positions[0]?.[0], ' Anchor:', anchor);
-
-        return { positions, anchor };
+        console.log('[Printer] Posiciones medidas para', numQ, 'preguntas (4 anclajes).');
+        return { positions, anchors };
     },
 
     async printBatch(exam, studentsList) {
@@ -358,15 +369,19 @@ const printer = {
                 font-weight: 600; flex-shrink: 0;
             }
 
-            /* Marca de anclaje: cuadro negro en esquina inferior-derecha de la grilla */
+            /* Marcadores de esquina: cuadro negro en las 4 esquinas de la grilla */
             .anchor-mark {
                 position: absolute;
-                bottom: 2mm; right: 2mm;
-                width: 8mm; height: 8mm;
+                width: 6mm; height: 6mm;
                 background: #000 !important;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
+                z-index: 10;
             }
+            .anchor-mark.tl { top: 1mm; left: 1mm; }
+            .anchor-mark.tr { top: 1mm; right: 1mm; }
+            .anchor-mark.bl { bottom: 1mm; left: 1mm; }
+            .anchor-mark.br { bottom: 1mm; right: 1mm; }
 
             /* Footer */
             .footer {
