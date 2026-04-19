@@ -383,6 +383,10 @@ const exams = {
                 </div>
             </div>
         `).join('');
+
+        if (typeof scanner !== 'undefined' && scanner.populateExamSelect) {
+            scanner.populateExamSelect();
+        }
     },
 
     async syncOne(examId) {
@@ -412,20 +416,39 @@ const exams = {
         const exam = this.list.find(e => e.id === examId);
         if (!exam) return;
         
-        const mode = prompt("Escribe 'TODO' para imprimir hojas para todos los estudiantes o 'ID' para un estudiante específico:");
+        this.currentPrintExam = exam;
+        document.getElementById('print-exam-name').textContent = exam.name;
+        document.getElementById('print-exam-grade').textContent = exam.grade;
+        document.getElementById('print-student-id').value = '';
         
-        if (mode?.toUpperCase() === 'TODO') {
-            const filtered = students.list.filter(s => s.grade === exam.grade);
-            if (filtered.length === 0) return alert("No hay estudiantes registrados en el grado " + exam.grade);
-            
-            if (confirm(`Se generará un PDF con ${filtered.length} hojas para el grado ${exam.grade}. ¿Continuar?`)) {
-                printer.printBatch(exam, filtered);
-            }
-        } else if (mode?.toUpperCase() === 'ID') {
-            const sid = prompt("Ingresa el ID del estudiante:");
-            const s = students.list.find(std => std.id === sid);
-            if (s) printer.printBatch(exam, [s]);
-            else alert("Estudiante no encontrado");
+        const btnAll = document.getElementById('btn-print-all');
+        btnAll.onclick = () => this.printAll();
+        
+        ui.showModal('print-modal');
+    },
+
+    printAll() {
+        const exam = this.currentPrintExam;
+        const filtered = students.list.filter(s => s.grade === exam.grade);
+        if (filtered.length === 0) return alert("No hay estudiantes registrados en el grado " + exam.grade);
+        
+        if (confirm(`Se generará un PDF con ${filtered.length} hojas para el grado ${exam.grade}. ¿Continuar?`)) {
+            printer.printBatch(exam, filtered);
+            ui.hideModal('print-modal');
+        }
+    },
+
+    printSpecific() {
+        const exam = this.currentPrintExam;
+        const sid = document.getElementById('print-student-id').value;
+        if (!sid) return alert("Ingresa un ID");
+        
+        const s = students.list.find(std => std.id === sid);
+        if (s) {
+            printer.printBatch(exam, [s]);
+            ui.hideModal('print-modal');
+        } else {
+            alert("Estudiante no encontrado");
         }
     },
 
@@ -433,8 +456,20 @@ const exams = {
         const container = document.getElementById('question-keys');
         const gradeSelect = document.getElementById('exam-grade');
         const qCountInput = document.getElementById('exam-q-count');
+        const numOptionsSelect = document.getElementById('exam-num-options');
+        const previewEl = document.getElementById('layout-preview');
         if (!container) return;
         
+        const count = qCountInput ? parseInt(qCountInput.value) || 30 : 30;
+        const numOptions = numOptionsSelect ? parseInt(numOptionsSelect.value) || 5 : 5;
+        const OPTS = 'ABCDE'.slice(0, numOptions);
+
+        // Preview del layout
+        if (typeof printer !== 'undefined' && previewEl) {
+            const L = printer.getLayout(count, numOptions);
+            previewEl.innerHTML = `→ <b>${L.cols}</b> ${L.cols === 1 ? 'columna' : 'columnas'} · <b>${L.perCol}</b> preguntas/col · Burbujas de <b>${L.bubblePx}px</b>`;
+        }
+
         // Populate grade dropdown
         const grades = [...new Set(students.list.map(s => s.grade))].sort();
         if (gradeSelect) {
@@ -443,18 +478,13 @@ const exams = {
                 grades.map(g => `<option value="${g}" ${g === currentVal ? 'selected' : ''}>${g}</option>`).join('');
         }
 
-        const count = qCountInput ? parseInt(qCountInput.value) || 30 : 30;
         let html = '';
         for (let i = 1; i <= count; i++) {
             html += `
                 <div style="display: grid; grid-template-columns: 50px 1fr 1fr; gap: 10px; align-items: center; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
                     <span style="font-weight: bold;">#${i}</span>
                     <select id="q-${i}-ans" class="input-modern" style="padding: 4px;">
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="C">C</option>
-                        <option value="D">D</option>
-                        <option value="E">E</option>
+                        ${OPTS.split('').map(o => `<option value="${o}">${o}</option>`).join('')}
                     </select>
                     <select id="q-${i}-comp" class="input-modern" style="padding: 4px;">
                         ${this.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
@@ -469,7 +499,9 @@ const exams = {
         const name = document.getElementById('exam-name').value;
         const grade = document.getElementById('exam-grade').value;
         const qCountInput = document.getElementById('exam-q-count');
+        const numOptionsSelect = document.getElementById('exam-num-options');
         const count = qCountInput ? parseInt(qCountInput.value) || 30 : 30;
+        const numOptions = numOptionsSelect ? parseInt(numOptionsSelect.value) || 5 : 5;
 
         if (!name) return alert("El nombre es obligatorio");
         if (!grade) return alert("El grado es obligatorio");
@@ -487,6 +519,7 @@ const exams = {
             name,
             grade,
             questions,
+            numOptions,
             date: new Date().toISOString()
         };
         
